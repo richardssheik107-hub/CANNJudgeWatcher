@@ -2,9 +2,9 @@
 
 本方案由 GitHub Actions 每次运行一轮公开采集，将完整 SQLite 历史保存到 `watcher-state` 分支，再生成可供 GitHub Pages 展示的静态看板。启用并通过云端验收后，采集不依赖自己的电脑开机，也不需要常驻进程、服务器或 CANN 账号密码。
 
-固定比赛是 [星辰杯决赛公开榜](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。程序使用 `config/monitor.starcup-final.json`：精确匹配 `ct_starcup_aiop_final`、`cookie_env` 为空、公开提交列表回补关闭。只读取公开榜单及题目元信息，不执行提交、登录或选手源码抓取。
+固定比赛是 [星辰杯决赛公开榜](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。程序使用 `config/monitor.starcup-final.json`：精确匹配 `ct_starcup_aiop_final`、`cookie_env` 为空、公开提交列表回补关闭。只读取公开榜单、题目元信息及完整赛事详情中的评分规则，不执行提交、登录或选手源码抓取。
 
-**当前交付状态：用户已确认全部公开，直接使用当前仓库。117 项本地与远端 CI 测试通过；跨任务恢复、Pages 部署与网页访问均通过，快照由 21 → 22 → 23 → 24 → 25，旧历史完整保留。定时采集和 Pages 发布开关均为 true。** 本机采集停止后，云端仍成功增至 25 份并发布。计划任务可能延迟，连续 24 小时尚未验收；实际结果记录在 [验证记录](VALIDATION.md)。
+**当前交付状态：用户已确认全部公开，直接使用当前仓库。定时采集和 Pages 发布开关均为 true。** 首次云端部署阶段的 117 项本地与远端 CI、跨任务恢复、Pages 部署与网页访问均通过；当时快照由 21 → 22 → 23 → 24 → 25，旧历史完整保留，本机采集停止后云端仍成功新增并发布。当前基准修复已通过本地 150 项回归（41.29 秒）及代码 `81ddda7` 的远端 CI；修复后的 Pages 实际发布结果以 [验证记录](VALIDATION.md) 为准。计划任务可能延迟，连续 24 小时尚未验收。
 
 在线地址：[CANNJudgeWatcher 看板](https://richardssheik107-hub.github.io/CANNJudgeWatcher/)。无需本机开机或输入 CANN 账号密码。
 
@@ -89,7 +89,7 @@ GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Te
 
 ## 历史、容量和 artifact 保留
 
-静态页面保留完整当前榜及可追溯成绩证据；队伍图表默认加载最近 200 份快照。更早的完整快照由页面 JSONL 导出提供，峰值计算仍使用全部已保存的有效证据。公开总榜没有官方名次时继续显示未知值，参考排名和历史峰值不会被称为官方最终榜。
+静态页面保留完整当前榜及可追溯成绩证据；队伍图表默认加载最近 200 份快照，更早的完整快照由页面 JSONL 导出提供。星辰杯主榜从全部已保存的候选中，只比较当前基准下可确认的完整提交成绩，并显示可确认覆盖；本轮官方完整成绩可作锚点，旧提交缺少隐藏测试点等必要数据时不能重算，也不沿用旧分。历史审计仍保留原始官方分数和旧峰值。公开总榜没有官方名次时继续显示未知值，参考排名和可确认最高分不会被称为官方最终榜，已观测候选的完整覆盖也不表示覆盖开赛以来全部提交。
 
 数据库达到 **90 MiB** 时明确停采；每轮结束后的备份也会再次检查。这个保护早于 GitHub 对大于 **100 MiB** 普通文件的阻止规则。程序不会自动删除历史、压缩掉证据、切换到空库或重写状态分支来腾空间。[GitHub 文件和仓库大小规则](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
 
