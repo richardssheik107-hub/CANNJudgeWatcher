@@ -8,6 +8,7 @@
 - 改动后本地完整回归 **167 passed / 60.77s**，Python 编译、JavaScript 语法、actionlint 和 diff 检查通过；临时文件保留在短路径目录。
 - 正常补采 [37471588558](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37471588558) 明确 `reset_history=false`，collect 与 deploy 已成功；云数据库与实际 Pages 的 JSONL 均为 **2 份快照**，首次 **21:17:09** 不变，最新 **21:32:41**，元数据 epoch 仍为 **21:17:00**，没有旧历史回流。SHA-256、quick_check 与浏览器显示均通过，报告在 `data/github-validation/schedule-diagnosis/cloud-pages-37471588558.json`，实拍为同目录 `after-manual-update.png`。
 - cron 变更提交 `c2ae181` 的 [CI 37472049171](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37472049171) 已成功。截至 **21:38:12**，`event=schedule` 仍为 0；下一新计划点为 **21:43**。当前结论是手动补采恢复成功，自动调度仍未验收，不能宣称已解决。
+- **21:46:54** 复查：新计划点 21:43 已过，仍为零 schedule 记录，最新 monitor 仍是成功的手动补采。一次 cron 重新登记未证实恢复；可定位为未生成定时触发事件，GitHub 内部原因不由仓库 API 提供。本次检查保留这一未解决结论，没有把手动更新冒充自动恢复。备用路径可用免费外部定时器调用现有 workflow dispatch，需要额外账号和仅此仓库的 Actions 写权限令牌，不需要新仓库或本机常开；本轮未创建外部服务。
 
 ## 用户请求清空活动历史并重新采集（已完成）
 
