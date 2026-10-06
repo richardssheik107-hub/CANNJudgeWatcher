@@ -30,7 +30,9 @@ STATE_README = '''# CANNJudgeWatcher persisted public observations
 This branch is managed by the bounded GitHub Actions collector. It contains only
 the consistent public contest database, its integrity/backoff metadata and this
 notice. Snapshots are retained across runners. Updates never force-push or reset
-history. This is observed evidence, not an official final ranking.
+Git history. An explicit successful history reset starts a fresh active database;
+its parent commit remains recoverable. This is observed evidence, not an official
+final ranking.
 '''
 
 
@@ -81,7 +83,7 @@ def _configuration(path):
     return config
 
 
-def _metadata(raw):
+def _metadata(raw, *, now=None):
     if (not isinstance(raw, dict) or type(raw.get('schema')) is not int or raw.get('schema') != 1
             or raw.get('contest_slug') != CONTEST_SLUG or 'not_before' not in raw
             or not isinstance(raw.get('db_sha256'), str)
@@ -92,6 +94,17 @@ def _metadata(raw):
     if deadline is not None:
         if not isinstance(deadline, str) or utc(deadline) != deadline:
             raise ContractError('persisted backoff timestamp is invalid')
+    if 'observation_epoch_started_at' in raw:
+        started = raw['observation_epoch_started_at']
+        try:
+            if (not isinstance(started, str) or utc(started) != started
+                    or started > utc(now)):
+                raise ValueError('invalid observation epoch')
+            if 'updated_at' in raw and (not isinstance(raw['updated_at'], str)
+                    or utc(raw['updated_at']) != raw['updated_at'] or started > raw['updated_at']):
+                raise ValueError('observation epoch exceeds its state update')
+        except (ContractError, ValueError) as error:
+            raise ContractError('persisted observation epoch timestamp is invalid or in the future') from error
     return raw
 
 
@@ -144,11 +157,15 @@ def _candidate(repo, database, metadata_path, readme_path, parent):
 
 
 def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
-                  initialize=False, seed=None, repo=None, config_path=None, now=None) -> dict:
+                  initialize=False, seed=None, reset_history=False,
+                  repo=None, config_path=None, now=None) -> dict:
     """Prepare one round; publish readiness is granted only after state push succeeds.
 
     Initialization never contacts the contest. Its Git ref checks/push still use
     the configured origin so an existing persisted history cannot be replaced.
+    Explicit history reset restores and validates that existing history, then
+    polls a new database. Only a complete successful fresh collection can replace
+    the active state; restored files and the Git parent remain recoverable.
     ``repo``, ``config_path`` and ``now`` support isolated, offline acceptance.
     """
     work = Path(work_dir).resolve()
@@ -159,6 +176,10 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         raise ContractError('site output must be new; the previous published site is retained')
     if (isinstance(poll_seconds, bool) or not isinstance(poll_seconds, int) or poll_seconds < 300):
         raise ContractError('poll_seconds must be an integer of at least 300')
+    if not isinstance(reset_history, bool):
+        raise ContractError('reset_history must be a boolean')
+    if reset_history and (initialize or seed is not None):
+        raise ContractError('history reset cannot be combined with initialization or a seed database')
     if bool(initialize) != bool(seed):
         raise ContractError('initialization requires both --initialize and an explicit --seed database')
     repository = Path(repo).resolve() if repo else ROOT
@@ -168,7 +189,8 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
     report = {
         'status': 'PREPARING', 'snapshot_count_before': None, 'snapshot_count_after': None,
         'site_ready': False, 'state_changed': False, 'candidate_commit': None,
-        'state_pushed': False, 'not_before': None,
+        'state_pushed': False, 'not_before': None, 'reset_history': reset_history,
+        'reset_started_at': current if reset_history else None,
     }
 
     def record():
@@ -188,7 +210,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             raw_meta = _git(repository, ['show', parent + ':state.json'])
             if len(raw_meta) > 64 * 1024:
                 raise ContractError('persisted metadata exceeds the safety limit')
-            metadata = _metadata(json.loads(raw_meta.decode('utf-8')))
+            metadata = _metadata(json.loads(raw_meta.decode('utf-8')), now=current)
             size = int(_git(repository, ['cat-file', '-s', parent + ':starcup-final.sqlite3']).decode('ascii').strip())
             if size >= MAX_DB_BYTES:
                 raise ContractError('state database reached the 90 MiB safety limit; collection stopped before polling')
@@ -203,12 +225,12 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         count, scope_count = _validate_database(live, poll_seconds)
         report.update(snapshot_count_before=count, snapshot_count_after=count, scopes=scope_count)
         report.update(not_before=metadata['not_before'], failure_count=metadata['failure_count'])
-        if not initialize and metadata['not_before'] and current < metadata['not_before']:
+        if not initialize and not reset_history and metadata['not_before'] and current < metadata['not_before']:
             report.update(status='WAITING', warning='durable retry/backoff deadline has not elapsed')
             record()
             return report
 
-        store = Store(str(live))
+        store = Store(str(work / 'reset.sqlite3' if reset_history else live))
         if initialize:
             outcome = {'status': 'INITIALIZED', 'retry_after': 0}
         else:
@@ -220,6 +242,18 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         status = outcome['status']
         if status not in {'INITIALIZED', 'SUCCESS', 'PARTIAL', 'FAILED', 'SKIPPED'}:
             raise ContractError('collector returned an unknown round status')
+        if reset_history:
+            with store.connect() as db:
+                fresh_count = db.execute('SELECT COUNT(*) FROM snapshots').fetchone()[0]
+            report.update(collection_status=status, snapshot_count_after=fresh_count)
+            if status != 'SUCCESS' or not outcome.get('published') or fresh_count < 1:
+                raise ContractError('history reset requires a successful complete fresh collection; previous state and page were retained')
+            fresh_scopes = store.scopes()
+            if len(fresh_scopes) != 1:
+                raise ContractError('history reset requires exactly one complete public contest scope')
+            fresh = store.snapshot(fresh_scopes[0]['id'])
+            if fresh.get('source') != 'https://cannjudge.cn' or not fresh.get('observations'):
+                raise ContractError('history reset requires nonempty public ranking evidence; previous state and page were retained')
         failures = 0 if status in {'INITIALIZED', 'SUCCESS', 'SKIPPED'} else metadata['failure_count'] + 1
         finished = utc(now) if now is not None else utc()
         if failures:
@@ -239,6 +273,10 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             'failure_count': failures, 'not_before': deadline,
             'updated_at': finished, 'last_status': status, 'snapshot_count': count,
         }
+        if reset_history:
+            state['observation_epoch_started_at'] = current
+        elif 'observation_epoch_started_at' in metadata:
+            state['observation_epoch_started_at'] = metadata['observation_epoch_started_at']
         state_path = work / 'state.json'
         state_path.write_text(dumps(state) + '\n', encoding='utf-8')
         readme = work / 'README.md'
@@ -270,9 +308,11 @@ def main():
     parser.add_argument('--push-state', action='store_true')
     parser.add_argument('--initialize', action='store_true')
     parser.add_argument('--seed')
+    parser.add_argument('--reset-history', action='store_true', help='Start fresh active observations only after a successful public collection')
     args = parser.parse_args()
     print(dumps(monitor_round(args.work_dir, args.site_output, poll_seconds=args.poll_seconds,
-                             push_state=args.push_state, initialize=args.initialize, seed=args.seed)))
+                             push_state=args.push_state, initialize=args.initialize, seed=args.seed,
+                             reset_history=args.reset_history)))
 
 
 if __name__ == '__main__':
