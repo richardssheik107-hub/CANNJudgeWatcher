@@ -14,7 +14,9 @@
 
 真实联调修复了 Hidden 占位误判和嵌套测试集元数据提取，新增 11 项公开源回归，该阶段 **83 项通过**。总榜未公开官方 rank，保留未知，不把参考排序冒充官方名次。专用精确配置、独立真实数据库和 StarcupLive 启停脚本已增加，轮询等待为 120 秒。详细范围见 [VALIDATION.md](VALIDATION.md)，运行方式见 [LOCAL_RUN.md](LOCAL_RUN.md)。
 
-用户随后选择 GitHub 免费运行方式。本次增加 Actions 单轮采集、独立状态分支持久保存与限流等待、Pages 静态前端导出及 34 项回归，完整测试 **117 项通过**。代码与状态分别保存于 `main` 和 `watcher-state`，运行数据库不进入源码提交。仓库目前保持私有，公开范围尚需用户确认；自动采集与 Pages 门控默认关闭。真实云端验证结果以 [VALIDATION.md](VALIDATION.md) 中记录为准，使用方法见 [GITHUB_RUN.md](GITHUB_RUN.md)。Docker、其他云服务器与 24 小时稳定运行仍未验收。
+用户随后选择 GitHub 免费运行方式，并明确确认“全部公开，不用新建仓库”。本次增加 Actions 单轮采集、独立状态分支持久保存与限流等待、Pages 静态前端导出及 34 项回归，完整测试 **117 项通过**。源码提交 `11c5c2b7e17b2216d21dbe6714a52a7a10558fa3` 已推送，对应 CI 通过。代码与状态分别保存于 `main` 和 `watcher-state`，运行数据库不进入源码提交，但状态分支和完整观测历史均为公开。
+
+[在线榜单](https://richardssheik107-hub.github.io/CANNJudgeWatcher/) 已上线，计划每 10 分钟自动采集。本机采集停止后，云端仍恢复历史并新增至 25 份快照。实际结果见 [VALIDATION.md](VALIDATION.md)，使用方法见 [GITHUB_RUN.md](GITHUB_RUN.md)。Docker、其他云服务器与 24 小时稳定运行仍未验收。
 
 ## 后续重新导入交付包
 

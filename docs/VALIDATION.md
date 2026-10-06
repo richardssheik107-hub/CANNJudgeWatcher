@@ -2,7 +2,7 @@
 
 ## GitHub 方案本地验收
 
-新增 `watcher/static_export.py`、`watcher/github_monitor.py` 与 `Starcup monitor` 工作流，固定读取所选星辰杯决赛的公开数据，不使用账号或 Cookie。当前仓库保持私有；自动采集和 Pages 发布门控默认关闭，真实云端试采及 Pages 发布另行记录。
+新增 `watcher/static_export.py`、`watcher/github_monitor.py` 与 `Starcup monitor` 工作流，固定读取所选星辰杯决赛的公开数据，不使用账号或 Cookie。用户已确认全部公开，原仓库已公开；Pages 和计划采集开关已启用。两轮试采、随后两次公开采集/部署及网页访问已完成。
 
 | 检查 | 结果 |
 |---|---|
@@ -20,6 +20,42 @@
 计划周期为 10 分钟；GitHub 调度可能延迟或丢弃。网站显示最近发布及实际观测时间，而不是宣称正在实时采集。完整观测历史保存在独立状态分支，单个 SQLite 达到 90MiB 时停止，人工处理容量；不自动删减历史。
 
 ## 星辰杯决赛公开接口联调
+
+### GitHub 云端实际验收
+
+源码提交 `11c5c2b7e17b2216d21dbe6714a52a7a10558fa3` 已普通推送。对应 [CI 运行](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37459691905) 为 SUCCESS，Ubuntu / Python 3.12.14 的测试为 **117 passed in 5.12s**，编译及 JavaScript 语法通过。
+
+已有真实数据库通过只读一致备份初始化 `watcher-state`：21 份快照、无演示或人工导入记录、SQLite integrity_check=ok，首份时间仍为 2026-10-06 19:12:23（北京时间）。初始化状态提交为 `aa86c51c83b39027b228da5a9792a573df48380e`。
+
+| 云端检查 | 结果 |
+|---|---|
+| [手动第 1 轮](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37459744067) | SUCCESS，21 → 22 份快照；状态普通推送成功，源站无需登录可达 |
+| [手动第 2 轮](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37459860894) | SUCCESS，恢复 22 份后增至 23 份；状态普通推送成功 |
+| 跨 runner 历史一致性 | 第二轮 JSONL 以第一轮完整 22 份的原始字节为前缀；最初时间及峰值证据保留 |
+| 云端静态产物浏览器 | 下载第一轮 artifact 后通过真实 localhost 静态 HTTP 浏览；21 队、22 份快照、error/warn 为 0 |
+| 静态浏览器实际导出 | CSV 21 队；JSONL 22 份完整快照及原始起始时间，文件下载后重新读取核对 |
+| 公开发布和计划采集 | 此试采阶段暂未启用；随后已按用户确认公开并发布，见下方 |
+
+两轮均 `state_pushed=true`、`failure_count=0`、`not_before=null`。状态提交依次为 `81cd2b57f3795444d2d5547050fbbb37e8ae4a7b` 和 `916a3fb4829f3d7d12f70a91ccb1ea0415e09ce9`。原首条峰值 83.1 的证据 ID 保持为 `3f491774ce129f616424fea7f1b9971d417778423b40c5a1202ebf67cf16dd2e`。报告与云端实拍位于 Git 忽略的 `data/github-validation/`。
+
+### Pages 上线与本机停止后的云端更新
+
+2026-10-06 用户明确确认“全部公开，不用新建仓库”。原仓库设为公开，Pages 发布源为 GitHub Actions，HTTPS 开启，两个运行变量均为 `true`；没有新建仓库。
+
+| 检查 | 结果 |
+|---|---|
+| [首次公开采集及部署](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37461811849) | collect / deploy 均 SUCCESS；23 → 24 份快照，20:14:25 完整观测，20:14:46 发布完成（北京时间） |
+| 实际网站 HTTP | [Pages 地址](https://richardssheik107-hub.github.io/CANNJudgeWatcher/) 为 200；真实榜单、manifest、CSS、JS 和完整 JSONL 正常读取 |
+| 实际网站浏览器 | 项目子路径渲染 21 行、24 份快照，无页面错误提示；搜索后准确显示 Controlvector 一队，实拍保存 |
+| 历史保持 | 初始 19:12:23 时间及 Controlvector 83.1 旧峰值保持，完整 JSONL 可读取 |
+| 本机停止 | `Stop-StarcupLive.ps1` 正常停止登记进程；8088、8089 均无监听，数据库、日志和进程记录保留 |
+| [停止后的云端采集/发布](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37462797020) | collect / deploy 均 SUCCESS；恢复 24 份并增至 25 份，证明采集不依赖本地服务 |
+| 部署归档 | 两次部署成功后，只删除本次精确 ID 的 `github-pages` 归档；手动预览 artifact 与状态历史仍保留 |
+| 定时开关 | workflow 为 active；计划每小时 7/17/27/37/47/57 分钟运行，实际计划触发与长期稳定性后续观察 |
+
+真实公网 HTTP 报告及实拍保存在 Git 忽略的 `data/github-validation/pages-http-1/` 和 `pages-online.jpg`。公开仓库标准 runner 计算免费；artifact、网站和 Git 数据有容量限额。没有购买服务、保存 CANN 凭据或把本地密钥、运行日志上传。
+
+### 本地接口与持续采集
 
 使用无登录、无 Cookie 的只读 HTTP 请求读取用户指定的 [公开榜单](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。精确 slug 为 `ct_starcup_aiop_final`，赛事标题为“中国电信星辰杯高校AI算子开发挑战赛-决赛”，赛事 ID 为 `6abcb2fa694b590c3c300a2e`，题目 ID 为 `6abcb4fd694b590c3c315c0e`。首次本地观测时间为 **2026-10-06 19:12:23（北京时间）**。
 

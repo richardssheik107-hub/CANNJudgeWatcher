@@ -4,7 +4,9 @@
 
 固定比赛是 [星辰杯决赛公开榜](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。程序使用 `config/monitor.starcup-final.json`：精确匹配 `ct_starcup_aiop_final`、`cookie_env` 为空、公开提交列表回补关闭。只读取公开榜单及题目元信息，不执行提交、登录或选手源码抓取。
 
-**当前交付状态：已实现静态导出、跨运行历史恢复、持久退避和工作流；本地离线 Git／采集测试已通过。仓库当前为私有，GitHub runner 的真实采集与恢复验收、定时运行和 Pages 发布仍待进行。** 本文描述启用步骤，不能作为已在线部署成功的证明；实际结果记录在 [验证记录](VALIDATION.md)。
+**当前交付状态：用户已确认全部公开，直接使用当前仓库。117 项本地与远端 CI 测试通过；跨任务恢复、Pages 部署与网页访问均通过，快照由 21 → 22 → 23 → 24 → 25，旧历史完整保留。定时采集和 Pages 发布开关均为 true。** 本机采集停止后，云端仍成功增至 25 份并发布。计划任务可能延迟，连续 24 小时尚未验收；实际结果记录在 [验证记录](VALIDATION.md)。
+
+在线地址：[CANNJudgeWatcher 看板](https://richardssheik107-hub.github.io/CANNJudgeWatcher/)。无需本机开机或输入 CANN 账号密码。
 
 ## 免费条件与运行开关
 
@@ -12,7 +14,7 @@
 
 GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Team 或相应企业套餐。[Pages 可用范围](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 
-公开仓库意味着代码、`watcher-state` 的公开成绩历史及提交记录都可以被访问。需要先确认这个公开范围，才能把现有私有仓库改为公开；不能为了免费运行自行改变仓库可见性。
+公开仓库意味着代码、`watcher-state` 的公开成绩历史及提交记录都可以被访问。本次已获得用户“全部公开，不用新建仓库”的明确确认，并将原仓库设为公开；没有创建新仓库。
 
 在仓库 `Settings → Secrets and variables → Actions → Variables` 配置以下变量，值须为小写 `true`：
 

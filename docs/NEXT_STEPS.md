@@ -4,9 +4,9 @@
 
 用户已选择 GitHub 免费方案。云端单轮采集、`watcher-state` 历史恢复与保存、静态榜单、队伍详情、证据和导出已实现，完整回归 117 项通过。运行方法见 [GITHUB_RUN.md](GITHUB_RUN.md)，实际云端结果见 [VALIDATION.md](VALIDATION.md)。
 
-下一步在当前私有仓库初始化已有真实观测历史，并手动采集两轮，核验 runner 能访问源站且第二轮保留第一轮历史。免费 Pages 的公开范围需由用户确认：仓库公开将使源码和保存的公开比赛观测数据可见。确认后才启用 Pages 与 `ENABLE_GITHUB_MONITOR` / `ENABLE_GITHUB_PAGES`；未确认时不启用长期私有 Actions 调度。
+用户已确认全部公开，原仓库现为公开，没有创建新仓库。`ENABLE_GITHUB_MONITOR` 和 `ENABLE_GITHUB_PAGES` 均已开启；[在线榜单](https://richardssheik107-hub.github.io/CANNJudgeWatcher/) 部署成功。本机采集停止后云端仍成功恢复并新增历史，快照目前增至 25 份，最早时间及既有证据保留。
 
-发布后验证网站 HTTP、浏览器子路径、最新观测时间和独立云端更新。连续 24 小时、长期容量和扩展其他赛事仍需后续实际观测。
+网站 HTTP、实际浏览器渲染、项目子路径资源与独立云端更新已验证。后续需观察实际计划触发、连续 24 小时、长期容量和其他赛事适配；工作流为 active，计划频率不代表精确执行间隔。
 
 ## 本地运行与所选公开赛事联调 — 2026-10-06
 

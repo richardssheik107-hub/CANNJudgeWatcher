@@ -2,7 +2,7 @@
 
 把程序放到长期在线的 Linux 云服务器后，采集、SQLite 和网页看板都在服务器上运行。自己的电脑可以关机；用电脑或手机打开看板即可查看服务器已有结果。每轮采集完成后通常等待约 120 秒，失败会退避，因此不是严格每两分钟出现一份新数据。
 
-本轮只准备本地部署文件，没有购买、创建或部署云资源。本机尚未实跑 Docker，云端连通性、容器启动、服务器重启和长期运行均待验收。现有 `docker-compose.yml` 仍为通用配置；本赛事使用独立的 `docker-compose.starcup.yml`。
+当前已选择并完成 [GitHub Actions + Pages 免费部署](GITHUB_RUN.md)，无需购买云服务器。[在线榜单](https://richardssheik107-hub.github.io/CANNJudgeWatcher/) 已上线，本机停止后云端仍能采集并发布。本页的 Docker、Linux 和 Render 步骤保留为替代方案；容器启动、服务器重启和长期运行仍未验收。
 
 ## 选择运行环境
 
@@ -17,14 +17,14 @@
 
 Render 可选新加坡等区域，目前没有中国内地区域；部署前须从实际运行地区请求 CANN 源站，不能用本机连通来代替云端验收。[区域](https://render.com/docs/regions)
 
-GitHub Actions 单次采集与静态页面方案现已实现：每轮从 `watcher-state` 分支恢复完整历史，固定读取星辰杯决赛公开榜，再保存一致备份并生成 Pages 看板。计划间隔为十分钟，当前私有仓库仅开放有限的手动试运行；公开仓库分别通过 `ENABLE_GITHUB_MONITOR` 和 `ENABLE_GITHUB_PAGES` 开启计划与发布。公开标准 runner 的运行时间免费，私有额度须另行核验；GitHub Free 的 Pages 需要公开仓库。云端采集和页面发布尚待实际验收，初始化、免费条件及数据保留见 [GitHub 运行说明](GITHUB_RUN.md)。[Actions 计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)、[Pages 适用范围](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
+GitHub Actions 单次采集与静态页面方案已上线：每轮从 `watcher-state` 分支恢复完整历史，固定读取星辰杯决赛公开榜，再保存一致备份并生成 Pages 看板。用户已确认公开原仓库，`ENABLE_GITHUB_MONITOR` 和 `ENABLE_GITHUB_PAGES` 均开启，计划间隔为十分钟。公开标准 runner 的运行时间免费，Pages 使用免费域名；存储和容量限制仍适用。初始化、免费条件及数据保留见 [GitHub 运行说明](GITHUB_RUN.md)。[Actions 计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)、[Pages 适用范围](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 
 GitHub 定时任务可能延迟或丢弃排队运行，公开仓库无活动 60 天会停用计划，因此十分钟是计划频率，并非持续服务或严格实时保证。本项目跨 runner 保存 429 等待和失败退避，失败会保留旧榜；数据库达到 90 MiB 时停采而不自动删历史。[定时规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 
 ## Linux 服务器迁移步骤
 
 1. 选择一台长期在线的 Linux 服务器，准备普通 SSH 账号。安装 Docker Engine 和 Compose 插件，按对应系统的[官方安装说明](https://docs.docker.com/engine/install/)操作。服务器需要保持联网、有剩余磁盘且按时续费；不配置空闲关机或休眠。
-2. 上传本轮已核验的代码副本及 `config/monitor.starcup-final.json`、`docker-compose.starcup.yml`。本轮本地改动尚未推送，直接克隆旧的 `main` 不一定包含它们。上传代码时排除 `.git`、`.env`、虚拟环境、演示数据库及日志；本地真实数据库按下一节单独迁移。
+2. 上传本轮已核验的代码副本及 `config/monitor.starcup-final.json`、`docker-compose.starcup.yml`，或克隆已更新的 `main`。上传代码时排除 `.git`、`.env`、虚拟环境、演示数据库及日志；真实数据库按下一节单独迁移。
 3. 在服务器代码根目录先验证公开接口可达。不要添加 Cookie，也不要请求私人提交、登录或代码接口：
 
    ```bash
