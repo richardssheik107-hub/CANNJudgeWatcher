@@ -173,10 +173,25 @@ def collect_contest(client: Client, contest: dict, config: dict) -> dict:
         meta = client.get('/api/problems/' + quote(pid, safe=''))
         if not isinstance(meta, dict) or str(meta.get('_id')) != pid:
             raise ContractError('problem identity mismatch')
-        version = {k: meta.get(k) for k in ('cann_version', 'code_template', 'ranking_submission_mode', 'judge_version')}
+        version = {k: meta.get(k) for k in ('cann_version', 'code_template', 'ranking_submission_mode',
+                                          'judge_version', 'version_root_id', 'version_no',
+                                          'score_mode', 'use_baseline', 'iterations')}
         cases = meta.get('testcases', [])
         if isinstance(cases, list):
-            version['testcases'] = [{k: c.get(k) for k in ('_id', 'type', 'baseline_id')} for c in cases if isinstance(c, dict)]
+            version['testcases'] = []
+            for case in cases:
+                if not isinstance(case, dict):
+                    raise ContractError('public testcase metadata must be an object')
+                ref = case.get('testcase_id', case)
+                if isinstance(ref, dict):
+                    baseline = ref.get('baseline_id', ref.get('baseline'))
+                    version['testcases'].append({'_id': ref.get('_id'), 'type': ref.get('type'),
+                                                 'baseline_id': baseline.get('_id') if isinstance(baseline, dict) else baseline})
+                elif isinstance(ref, str):
+                    version['testcases'].append({'_id': ref, 'type': case.get('type'),
+                                                 'baseline_id': case.get('baseline_id')})
+                else:
+                    raise ContractError('public testcase has no valid identity reference')
         descriptors.append({'id': pid, 'title': str(meta.get('title') or pid),
                             'weight': config.get('problem_weights', {}).get(pid, 1), 'version': digest(version)})
         rows, pages = client.ranking(pid)
@@ -195,6 +210,9 @@ def collect_contest(client: Client, contest: dict, config: dict) -> dict:
         notes.append('总榜接口没有完整 rank 字段；参考名次仅按总分排序，不能当成官方并列规则。')
     if any(r['score'] is None for r in observations):
         notes.append('部分题目未公开 score：保留结果，但不猜测分数或用耗时拼分。')
+    if any(c.get('testcase_status') == 'Hidden' or c.get('status') == 'Hidden'
+           for r in observations for c in r['result'] if isinstance(c, dict)):
+        notes.append('部分测试点为公开 Hidden 占位；保留未知详情，使用官方完整提交状态与 score，不按测试点猜分。')
     notes.append('不同题目顺序采集，非服务端原子快照；历史分数可能采用移动基准。')
     scope = {'contest_id': cid, 'title': title, 'stage': str(contest.get('name') or cid), 'group': group,
              'epoch': str(config.get('rule_epoch', 'observed-source-score-v1')),

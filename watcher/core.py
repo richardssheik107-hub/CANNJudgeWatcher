@@ -78,7 +78,11 @@ def observation(problem_id: str, raw: dict) -> dict:
         raise ContractError('result must be an array')
     status = str(raw.get('status') or '')
     score = number(raw.get('score'))
-    cases_ok = all(isinstance(c, dict) and (c.get('testcase_status') or c.get('status')) in PASS for c in result)
+    # The public board replaces undisclosed test cases with Hidden/null placeholders.
+    # A complete official Pass with an explicit score is evidence of the submission
+    # result; Hidden is kept as undisclosed, never converted into a passed case.
+    cases_ok = all(isinstance(c, dict) and (c.get('testcase_status') or c.get('status')) in PASS | {'Hidden'}
+                   for c in result)
     return {'problem_id': problem_id, 'team_key': key, 'name': name,
             'score': score, 'rank': rank(raw.get('rank')), 'status': status,
             'eligible': status in PASS and score is not None and cases_ok,

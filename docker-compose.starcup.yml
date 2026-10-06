@@ -1,0 +1,33 @@
+name: cannjudge-starcup
+
+services:
+  watcher:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:8080"
+    environment:
+      WATCHER_TOKEN: ${WATCHER_TOKEN:?Set WATCHER_TOKEN to a private access token before starting}
+    command:
+      - python
+      - -m
+      - watcher
+      - --db
+      - /data/starcup-final.sqlite3
+      - --config
+      - /app/config/monitor.starcup-final.json
+      - serve
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --poll
+    volumes:
+      - starcup-data:/data
+      - ./config/monitor.starcup-final.json:/app/config/monitor.starcup-final.json:ro
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  starcup-data:
+    name: starcup-data

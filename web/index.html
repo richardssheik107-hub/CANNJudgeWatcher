@@ -1,11 +1,12 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CANNJudge · 历史峰值看板</title><link rel="stylesheet" href="/static/style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CANNJudge · 历史峰值看板</title><link rel="stylesheet" href="./static/style.css"></head>
 <body>
-<header class="topbar"><a class="brand" href="/">C<span>J</span><b>CANNJudge <em>Watcher</em></b></a><div class="top-right"><span id="live-status" class="status">正在读取</span><button id="token-button" class="quiet">访问令牌</button></div></header>
+<header class="topbar"><a class="brand" href="./">C<span>J</span><b>CANNJudge <em>Watcher</em></b></a><div class="top-right"><span id="live-status" class="status">正在读取</span><button id="token-button" class="quiet">访问令牌</button></div></header>
 <main>
 <section class="intro"><div><p class="eyebrow">COMPETITION INTELLIGENCE / 赛事观察</p><h1>看见成绩的<span>完整轨迹。</span></h1><p class="muted">当前榜单之外，保留每一次已观测的突破。</p></div><div class="intro-aside"><b>OBSERVED, NOT ASSUMED.</b><span>只记录证据，不推测隐藏成绩</span></div></section>
 <div id="demo-banner" class="banner demo hidden">演示模式 · 以下均为合成数据，不代表真实赛事当前排名。</div>
+<div id="hosting-banner" class="banner snapshot hidden" role="status"></div>
 <div id="error" class="banner error hidden" role="alert"></div>
 <section class="controls"><label>赛事 / 赛段 / 规则版本<select id="scope"><option>等待数据</option></select></label><label class="search">搜索队伍<input id="search" type="search" placeholder="输入队伍名称或 ID"></label><label>排序<select id="sort"><option value="peak">历史峰值合计</option><option value="current">官方当前总分</option></select></label><button id="refresh">刷新看板</button><button id="export-csv" class="quiet">导出 CSV</button></section>
 <section class="metrics"><article><span>已观测队伍</span><strong id="teams">—</strong><small>包括已离开当前榜单的队伍</small></article><article><span>高于当前展示分数</span><strong id="regressions">—</strong><small>历史差值，不等同于主动藏分</small></article><article><span>已保存榜单快照</span><strong id="snapshots">—</strong><small id="coverage">尚未开始采集</small></article><article><span>最近完整观测</span><strong id="latest" class="time">—</strong><small id="freshness">尚无真实数据</small></article></section>
@@ -15,5 +16,5 @@
 <footer class="page-footer"><span>CANNJudgeWatcher · Evidence first</span><span>历史记录不覆盖 · 赛段隔离 · 只读采集</span></footer>
 </main>
 <dialog id="team-dialog"><div class="dialog-head"><div><p class="eyebrow">TEAM EVIDENCE</p><h2 id="team-title"></h2></div><button id="close-dialog" class="quiet" aria-label="关闭详情">关闭 ✕</button></div><div id="team-content"></div></dialog>
-<script src="/static/app.js" defer></script>
+<script src="./static/app.js" defer></script>
 </body></html>

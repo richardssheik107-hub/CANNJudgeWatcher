@@ -26,14 +26,15 @@ def main():
     history.add_argument('--start-skip', type=int, default=0)
     args = parser.parse_args()
     db = args.db or ('data/demo.sqlite3' if args.command == 'demo' else 'data/live.sqlite3')
-    store = Store(db)
     if args.command == 'serve':
         import uvicorn
         from .app import create_app
         uvicorn.run(create_app(db, args.config, args.poll), host=args.host, port=args.port, workers=1)
-    elif args.command == 'demo':
+        return
+    store = Store(db)
+    if args.command == 'demo':
         seed(store)
-        print('Synthetic demo ready. Start: python -m watcher --db data/demo.sqlite3 serve')
+        print(f'Synthetic demo ready. Start: python -m watcher --db "{db}" serve')
     elif args.command == 'scopes':
         print(dumps(store.scopes()))
     elif args.command == 'export':

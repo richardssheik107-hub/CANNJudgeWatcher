@@ -1,6 +1,7 @@
 name: Validate watcher
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -14,15 +15,22 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    env:
+      PYTHONPATH: tests
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTEST_ADDOPTS: '-p no:tmpdir -p no:cacheprovider -p retain_tmp'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+          clean: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m pytest -q
+        env:
+          CANNWATCHER_TEST_ARTIFACTS: ${{ runner.temp }}/cannwatcher-test-artifacts
       - run: python -m compileall -q watcher
       - run: node --check web/app.js
   public-probe:
@@ -30,10 +38,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+          clean: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
@@ -44,7 +53,7 @@ jobs:
       - name: Export any completed snapshots
         if: always()
         run: python -m watcher export public-probe.jsonl
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: public-source-probe

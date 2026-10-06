@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import math
 import os
 import random
 from contextlib import asynccontextmanager
@@ -17,20 +18,29 @@ from .store import Store
 ROOT = Path(__file__).resolve().parent.parent
 
 def create_app(db_path: str = 'data/live.sqlite3', config_path: str = 'config/monitor.json', polling: bool = False) -> FastAPI:
-    store = Store(db_path)
     config = json.loads(Path(config_path).read_text(encoding='utf-8')) if Path(config_path).exists() else {}
+    if not isinstance(config, dict):
+        raise ValueError('configuration must be a JSON object')
     if polling and not config:
         raise ValueError('polling requires an explicit readable configuration')
-    stop = asyncio.Event()
+    interval = 120.0
+    if polling:
+        value = config.get('poll_seconds', 120)
+        try:
+            interval = float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError('poll_seconds must be a finite positive number') from None
+        if isinstance(value, bool) or not math.isfinite(interval) or interval <= 0:
+            raise ValueError('poll_seconds must be a finite positive number')
+        interval = max(60, interval)
+    store = Store(db_path)
 
-    async def worker():
-        client = Client(config)
+    async def worker(client, stop):
         failures = 0
         try:
             while not stop.is_set():
                 result = await asyncio.to_thread(poll, store, client, config)
                 failures = 0 if result['status'] == 'SUCCESS' else min(failures + 1, 5)
-                interval = max(60, float(config.get('poll_seconds', 120)))
                 delay = max(min(3600, interval * 2 ** failures), result['retry_after'])
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=delay + random.uniform(0, interval * .1))
@@ -41,11 +51,17 @@ def create_app(db_path: str = 'data/live.sqlite3', config_path: str = 'config/mo
 
     @asynccontextmanager
     async def lifespan(app):
-        task = asyncio.create_task(worker()) if polling else None
-        yield
-        stop.set()
-        if task:
-            await task
+        stop = asyncio.Event()
+        # Client construction performs local validation before ASGI reports readiness.
+        client = Client(config) if polling else None
+        task = asyncio.create_task(worker(client, stop)) if polling else None
+        try:
+            yield
+        finally:
+            stop.set()
+            if task:
+                # Finish the current bounded round before closing its HTTP client.
+                await task
 
     app = FastAPI(title='CANNJudgeWatcher · Observed Peak', lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store

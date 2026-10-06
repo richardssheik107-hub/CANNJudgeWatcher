@@ -3,14 +3,47 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = value => value == null ? '—' : Number(value).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
 const when = (value, date = false) => value ? new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Shanghai', ...(date ? {month:'2-digit',day:'2-digit'} : {}), hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(value)) : '—';
-const state = {board:null, scopes:[], rows:[], request:0, meta:null};
+const staticMode = document.documentElement.dataset.mode === 'static';
+const siteRoot = new URL('./', document.baseURI);
+const state = {board:null, scopes:[], rows:[], request:0, meta:null, manifest:null, detailManifest:null};
+function staticPath(path) {
+  if(typeof path !== 'string' || !/^\.?\/?_data\/[A-Za-z0-9._/-]+$/.test(path) || path.split('/').includes('..')) throw new Error('静态快照路径无效，保留上一份显示。');
+  const url = new URL(path, siteRoot);
+  if(url.origin !== siteRoot.origin || !url.pathname.startsWith(siteRoot.pathname + '_data/')) throw new Error('静态快照路径无效，保留上一份显示。');
+  return url.href;
+}
+function mapped(object, key) {
+  if(!object || !Object.hasOwn(object, key)) throw new Error('这份静态快照缺少所选记录，保留上一份显示。');
+  return object[key];
+}
+function resource(kind, values = {}, manifest = state.manifest) {
+  if(staticMode) {
+    if(!manifest) throw new Error('尚未读取静态快照目录。');
+    let path;
+    if(kind === 'board') path = mapped(manifest.boards, values.scope);
+    else if(kind === 'history' || kind === 'archive') path = mapped(mapped(kind === 'history' ? manifest.history : manifest.archives, values.scope), values.team);
+    else if(kind === 'evidence') path = mapped(manifest.evidence, values.id);
+    else path = mapped(manifest, kind);
+    return staticPath(path);
+  }
+  if(kind === 'board') return '/api/board/' + encodeURIComponent(values.scope);
+  if(kind === 'history') return '/api/history/' + encodeURIComponent(values.scope) + '?team=' + encodeURIComponent(values.team);
+  if(kind === 'archive') return '/api/archive/' + encodeURIComponent(values.scope) + '?team=' + encodeURIComponent(values.team) + '&limit=20';
+  if(kind === 'evidence') return '/api/evidence/' + encodeURIComponent(values.id);
+  return '/api/' + kind;
+}
 async function api(path) {
-  const token = sessionStorage.getItem('watcher-token');
+  const token = staticMode ? null : sessionStorage.getItem('watcher-token');
   const response = await fetch(path, {headers:token ? {Authorization:'Bearer ' + token} : {}, cache:'no-store'});
-  if (!response.ok) throw new Error(response.status === 401 ? '请输入访问令牌，再刷新看板。' : '读取失败（HTTP ' + response.status + '），保留上一份显示。');
+  if (!response.ok) throw new Error(!staticMode && response.status === 401 ? '请输入访问令牌，再刷新看板。' : '读取失败（HTTP ' + response.status + '），保留上一份显示。');
   return response;
 }
 async function json(path) {return (await api(path)).json();}
+async function readManifest() {
+  const manifest=await json(staticPath('_data/manifest.json'));
+  if(manifest?.schema !== 1 || !Number.isFinite(Date.parse(manifest.generated_at)) || manifest.collector_enabled !== false || !Number.isFinite(Number(manifest.poll_seconds)) || Number(manifest.poll_seconds) <= 0) throw new Error('静态快照目录格式无效，保留上一份显示。');
+  return manifest;
+}
 function error(message) {$('error').textContent=message; $('error').classList.toggle('hidden', !message);}
 function download(content, name, type) {
   const url=URL.createObjectURL(new Blob([content], {type}));
@@ -18,27 +51,33 @@ function download(content, name, type) {
 }
 async function load() {
   const ticket=++state.request;
+  const old=$('scope').value;
   $('refresh').disabled=true;
   try {
-    const meta=await json('/api/scopes');
+    const manifest=staticMode ? await readManifest() : null;
+    const [meta, runs]=await Promise.all([json(resource('scopes', {}, manifest)), json(resource('runs', {}, manifest))]);
+    if(!Array.isArray(meta.scopes) || !Array.isArray(runs.runs)) throw new Error('快照内容格式无效，保留上一份显示。');
+    const selected=meta.scopes.some(s=>s.id===old) ? old : meta.scopes[0]?.id;
+    const board=selected ? await json(resource('board', {scope:selected}, manifest)) : null;
+    if(board && (board.scope_id !== selected || !board.scope || !Array.isArray(board.rows))) throw new Error('所选榜单内容无效，保留上一份显示。');
     if(ticket !== state.request) return;
-    state.meta=meta; state.scopes=meta.scopes;
-    const old=$('scope').value;
+    state.meta=staticMode ? {...meta, collector_enabled:false, poll_seconds:manifest.poll_seconds} : meta;
+    state.manifest=manifest; state.scopes=meta.scopes;
     $('scope').innerHTML=meta.scopes.map(s=>`<option value="${esc(s.id)}">${esc(s.title)} · ${esc(s.stage)} · ${esc(s.epoch)}</option>`).join('');
-    if(meta.scopes.some(s=>s.id===old)) $('scope').value=old;
-    if(meta.scopes.length) {
-      const board=await json('/api/board/'+encodeURIComponent($('scope').value));
-      if(ticket !== state.request) return;
+    if(selected) $('scope').value=selected;
+    if(board) {
       state.board=board; render();
     } else {
-      state.board=null; $('rows').innerHTML=''; $('empty').classList.remove('hidden');
-      $('live-status').textContent=meta.collector_enabled ? '采集已启用 · 等待首份完整数据' : '暂无数据 · 采集器未启用';
+      state.board=null; state.rows=[]; $('rows').innerHTML=''; $('empty').classList.remove('hidden');
+      $('live-status').textContent=staticMode ? 'GitHub 定时快照 · 等待首份完整数据' : meta.collector_enabled ? '采集已启用 · 等待首份完整数据' : '暂无数据 · 采集器未启用';
+    }
+    if(staticMode) {
+      $('hosting-banner').classList.remove('hidden');
+      $('hosting-banner').textContent='GitHub 定时快照 · 计划每 '+Math.round(Number(manifest.poll_seconds)/60)+' 分钟采集；最近发布 '+when(manifest.generated_at,true)+'（北京时间）。定时任务可能延迟，页面会检查最新快照。';
     }
     error('');
-    const runs=await json('/api/runs');
-    if(ticket !== state.request) return;
     $('runs').innerHTML=runs.runs.length ? runs.runs.map(r=>`<pre>${esc(when(r.started_at,true))} · ${esc(r.status)}\n${esc(JSON.stringify(r.detail,null,2))}</pre>`).join('') : '<p>尚无采集运行。演示数据与真实采集相互隔离。</p>';
-  } catch(e) {if(ticket===state.request) error(e.message);}
+  } catch(e) {if(ticket===state.request) {if(state.board) $('scope').value=state.board.scope_id; error(e.message);}}
   finally {if(ticket===state.request) $('refresh').disabled=false;}
 }
 function render() {
@@ -57,8 +96,8 @@ function render() {
   $('latest').textContent=when(b.observed_at);
   const age=Math.max(0,(Date.now()-Date.parse(b.observed_at))/1000);
   const stale=age>Math.max(300,Number(state.meta?.poll_seconds||120)*3);
-  $('freshness').textContent=(b.imported ? '导入快照 · ' : '') + (stale ? '数据已过时 · '+Math.floor(age/60)+' 分钟前' : '北京时间 · '+Math.floor(age)+' 秒前');
-  $('live-status').textContent=b.scope.demo ? 'DEMO · 合成数据' : stale ? '观测已过时 · 检查采集记录' : state.meta?.collector_enabled ? '采集器运行中' : '快照只读 · 采集器未启用';
+  $('freshness').textContent=(staticMode ? 'GitHub 定时采集 · ' : b.imported ? '导入快照 · ' : '') + (stale ? '数据已过时 · '+Math.floor(age/60)+' 分钟前' : '北京时间 · '+Math.floor(age)+' 秒前');
+  $('live-status').textContent=b.scope.demo ? 'DEMO · 合成数据' : staticMode ? (stale ? 'GitHub 定时快照 · 观测已过时' : 'GitHub 定时快照 · '+when(b.observed_at)) : stale ? '观测已过时 · 检查采集记录' : state.meta?.collector_enabled ? '采集器运行中' : '快照只读 · 采集器未启用';
   $('source-notes').innerHTML=b.notes.map(n=>'<p>'+esc(n)+'</p>').join('');
   $('rows').innerHTML=rows.map(r=>`<tr>
     <td><span class="purple">${r.peak_rank==null?'—':'#'+r.peak_rank}</span><span class="slash">/</span><span class="amber">${r.official_rank==null?'—':'#'+r.official_rank}</span>${r.official_rank==null && r.reference_rank!=null ? `<span class="subtext">总分参考 #${r.reference_rank} · 非官方</span>` : ''}</td>
@@ -66,6 +105,7 @@ function render() {
     <td><span class="green">${fmt(r.official_score)}</span><span class="slash">/</span><span class="blue">${fmt(r.peak_score)}</span></td>
     <td class="gap ${Number(r.gap)>10?'notice':''}">${r.gap==null?'—':(Number(r.gap)>0?'+':'')+fmt(r.gap)}</td>
     <td class="coverage">${r.observed_problems} / ${r.total_problems}<span class="subtext">已观测有效题目</span></td></tr>`).join('');
+  $('empty').textContent=query ? '没有匹配的队伍，请调整搜索内容。' : '当前已保存榜单中没有队伍记录。';
   $('empty').classList.toggle('hidden',rows.length>0);
   $('row-count').textContent='显示 '+rows.length+' / '+b.rows.length+' 支队伍';
 }
@@ -85,24 +125,25 @@ function chart(points) {
 }
 async function showTeam(key) {
   const b=state.board, row=b?.rows.find(r=>r.team_key===key); if(!row) return;
+  const manifest=state.manifest;
+  state.detailManifest=manifest;
   $('team-title').textContent=row.name;
   $('team-content').innerHTML='<p class="detail-note">读取完整提交证据…</p>';
   $('team-dialog').showModal();
   try {
-    const history=await json('/api/history/'+b.scope_id+'?team='+encodeURIComponent(key));
-    const archived=await json('/api/archive/'+b.scope_id+'?team='+encodeURIComponent(key)+'&limit=20');
+    const [history, archived]=await Promise.all([json(resource('history',{scope:b.scope_id,team:key},manifest)), json(resource('archive',{scope:b.scope_id,team:key},manifest))]);
     $('team-content').innerHTML=`<p class="detail-note">${esc(key)} · 当前 ${fmt(row.official_score)} / 已观测峰值合计 ${fmt(row.peak_score)}<br>本次详情对应 ${esc(when(b.observed_at,true))} 的榜单。逐题最佳可来自不同时间，单题只取一条完整有效成绩。</p>
       <h3>逐题最佳 · 可追溯证据</h3><div class="table-wrap"><table><thead><tr><th>题目</th><th>当前 / 峰值</th><th>首次观测时间</th><th>原始证据</th></tr></thead><tbody>${b.scope.problems.map(p=>{
         const best=row.best.find(x=>x.problem_id===p.id), cur=row.current.find(x=>x.problem_id===p.id);
-        return `<tr><td>${esc(p.title)}</td><td><span class="green">${fmt(cur?.score)}</span> / <span class="blue">${fmt(best?.score)}</span></td><td>${esc(when(best?.observed_at,true))}</td><td>${best ? `<button class="quiet evidence-button" data-evidence="${best.evidence_id}">查看记录</button><span class="subtext">${esc(best.submission_id||'源站未公开提交 ID')}</span>` : '尚未观测到有效分数'}</td></tr>`;}).join('')}</tbody></table></div>
-      <h3>官方总分轨迹 · 最近 ${history.points.length} 份已加载快照</h3>${chart(history.points)}${history.next_before?'<p class="detail-note">还有更早快照。完整记录可使用下方 JSONL 导出或带 before 游标的历史 API 获取。</p>':''}
-      <h3>已归档的公开提交列表 · ${archived.total} 条已关联版本</h3><p class="detail-note">提交列表与榜单观测分开保存。未公开 score 的历史提交不能被倒推成历史最高分；用户 ID 与队伍 ID 无明确映射时不强行关联。完整归档可通过 /api/archive/赛事作用域 查询。</p>
-      ${archived.rows.length?`<pre>${esc(JSON.stringify(archived.rows.map(r=>({id:r.submission_id,problem:r.problem_id,status:r.data.status,created:r.data.create_time})),null,2))}</pre>`:'<p class="detail-note">尚无关联的公开历史列表归档；这不代表该队没有提交历史。运行 backfill 命令可尝试补录平台允许读取的记录。</p>'}
+        return `<tr><td>${esc(p.title)}</td><td><span class="green">${fmt(cur?.score)}</span> / <span class="blue">${fmt(best?.score)}</span></td><td>${esc(when(best?.observed_at,true))}</td><td>${best ? `<button class="quiet evidence-button" data-evidence="${esc(best.evidence_id)}">查看记录</button><span class="subtext">${esc(best.submission_id||'源站未公开提交 ID')}</span>` : '尚未观测到有效分数'}</td></tr>`;}).join('')}</tbody></table></div>
+      <h3>官方总分轨迹 · 最近 ${history.points.length} 份已加载快照</h3>${chart(history.points)}${history.next_before?'<p class="detail-note">还有更早快照。完整榜单观测记录可使用页面下方的 JSONL 导出获取。</p>':''}
+      <h3>已归档的公开提交列表 · ${archived.total} 条已关联版本</h3><p class="detail-note">提交列表与榜单观测分开保存。未公开 score 的历史提交不能被倒推成历史最高分；用户 ID 与队伍 ID 无明确映射时不强行关联。此处展示最近 20 条已关联记录。</p>
+      ${archived.rows.length?`<pre>${esc(JSON.stringify(archived.rows.slice(0,20).map(r=>({id:r.submission_id,problem:r.problem_id,status:r.data.status,created:r.data.create_time})),null,2))}</pre>`:'<p class="detail-note">尚无关联的公开历史列表归档；这不代表该队没有提交历史。</p>'}
       <h3>原始成绩证据</h3><pre id="evidence-content">点击“查看记录”，显示提交 ID、原始分数、测试点结果、采集时间及快照编号。</pre>`;
   } catch(e) {$('team-content').textContent=e.message;}
 }
 $('rows').addEventListener('click',e=>{const b=e.target.closest('[data-team]');if(b)showTeam(b.dataset.team);});
-$('team-content').addEventListener('click',async e=>{const b=e.target.closest('[data-evidence]');if(!b)return;try{$('evidence-content').textContent=JSON.stringify(await json('/api/evidence/'+b.dataset.evidence),null,2);}catch(err){$('evidence-content').textContent=err.message;}});
+$('team-content').addEventListener('click',async e=>{const b=e.target.closest('[data-evidence]');if(!b)return;try{$('evidence-content').textContent=JSON.stringify(await json(resource('evidence',{id:b.dataset.evidence},state.detailManifest)),null,2);}catch(err){$('evidence-content').textContent=err.message;}});
 $('close-dialog').addEventListener('click',()=>$('team-dialog').close());
 $('refresh').addEventListener('click',load); $('scope').addEventListener('change',load); $('search').addEventListener('input',render); $('sort').addEventListener('change',render);
 $('token-button').addEventListener('click',()=>{const value=prompt('输入看板访问令牌（仅保存在本标签页会话中，不会放入 URL）');if(value!==null){value?sessionStorage.setItem('watcher-token',value):sessionStorage.removeItem('watcher-token');load();}});
@@ -111,5 +152,11 @@ $('export-csv').addEventListener('click',()=>{
   const data=[['队伍','队伍ID','峰值合计排名','官方名次','官方总分','已观测逐题峰值合计','已观测有效题数','总题数','观测时间','演示数据'],...state.rows.map(r=>[r.name,r.team_key,r.peak_rank,r.official_rank,r.official_score,r.peak_score,r.observed_problems,r.total_problems,state.board.observed_at,state.board.scope.demo])];
   download('\ufeff'+data.map(r=>r.map(cell).join(',')).join('\r\n'),'observed-peak.csv','text/csv;charset=utf-8');
 });
-$('export-json').addEventListener('click',async()=>{try{download(await (await api('/api/export')).text(),'observed-snapshots.jsonl','application/x-ndjson');}catch(e){error(e.message);}});
+$('export-json').addEventListener('click',async()=>{try{download(await (await api(resource('export'))).text(),'observed-snapshots.jsonl','application/x-ndjson');}catch(e){error(e.message);}});
+if(staticMode) {
+  $('token-button').classList.add('hidden');
+  $('refresh').textContent='检查最新快照';
+  $('empty').textContent='尚无已发布的完整榜单快照，请稍后检查采集运行记录。';
+  $('live-status').textContent='GitHub 定时快照 · 正在读取';
+}
 load(); setInterval(()=>{if(!document.hidden && !$('team-dialog').open)load();},60000);

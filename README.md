@@ -2,7 +2,7 @@
 
 **官方当前榜 + 各队逐题历史已观测最高分合计。** 面向 CANN 京津东北挑战赛与中国电信星辰杯，按赛事、赛段和 A/B 组独立观察。浅色看板采用“合计排名 / 官方排名”“官方总分 / 历史峰值”的双列对照。
 
-> 当前为第一版实现：本地自动化测试与合成数据看板已验证；真实 CANNJudge 网络联调、赛事字段映射和长期运行尚待验收。仓库不是已经部署的线上监控服务。演示数据不会作为真实成绩发布。
+> 本地运行、启停和备份恢复已验证，并已无登录接入星辰杯决赛公开榜：21 支队伍，其中 9 支具有官方 Pass 有效成绩。当前回归共 117 项通过。真实数据从 2026-10-06 19:12:23（北京时间）开始观测。GitHub 定时采集、历史保存与静态看板已实现；云端实际采集及 Pages 发布状态见验证记录。演示数据与真实赛事数据分库保存。
 
 > 本仓库包含 v0.1.0 交付包的主体源码、静态前端、测试、部署配置和演示预览。导入记录与后续验收步骤见 [交付说明](docs/DELIVERY.md)。
 
@@ -15,8 +15,15 @@
 - **公开赛事发现**：标题包含“星辰杯”或同时包含“京津”“东北”时入选。来自公开元数据的赛事/题目 ID，不猜测地区赛 URL、分组编号或数组位置。
 - **完整性保护**：分页总数、重复队伍、缺页、首页漂移、JSON 结构与身份校验；不完整的新一轮不会覆盖上一份完整榜单。HTTP 429 按 Retry-After 等待，轮询失败退避。
 - **部署与导出**：FastAPI + SQLite + 静态前端；CSV、快照 JSONL、SQLite 一致性备份；Docker Compose；可选 Bearer 访问令牌；所有网页 API 只读。
+- **GitHub 免费托管路径**：Actions 计划每 10 分钟读取所选星辰杯公开榜，独立 `watcher-state` 分支持久保存历史，Pages 展示静态快照。恢复和校验旧历史后才采集，推送历史成功后才发布页面；使用公开仓库启用，不依赖本机开机。
+
+## GitHub 定时采集与网页
+
+用户已选择 GitHub 方案。具体设置、费用条件、首次历史初始化与故障处理见 [GITHUB_RUN.md](docs/GITHUB_RUN.md)。当前仓库为私有，自动采集和 Pages 发布门控默认关闭；手动云端试运行与公开发布是分别验收的步骤。公开仓库标准 Actions runner 无计算分钟费用，GitHub Free 的 Pages 要求公开仓库。计划调度可能延迟或跳过，不保证精确到分钟。
 
 ## 先看本地演示
+
+Windows 本机已配置环境时，可双击 `scripts\Start-LocalDemo.cmd` 打开演示，双击 `scripts\Stop-LocalDemo.cmd` 停止。脚本会保留并复用已核验的演示库，重复启动不会重复生成数据，采集器保持关闭。其他 Python 路径、端口和日志位置见 [本地运行说明](docs/LOCAL_RUN.md)。
 
 需要 Python 3.11+。在仓库根目录运行：
 
@@ -31,6 +38,12 @@ python -m watcher --db data/demo.sqlite3 serve
 演示库默认 `data/demo.sqlite3`，真实采集默认 `data/live.sqlite3`。不要将演示库用作生产数据源。
 
 ## 接入真实赛事
+
+本机已核验用户提供的 [星辰杯决赛公开榜](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。精确配置为 [`config/monitor.starcup-final.json`](config/monitor.starcup-final.json)，不发送登录 Cookie，轮询等待设为 120 秒，公开提交列表回补暂时关闭。Windows 可双击 `scripts\Start-StarcupLive.cmd` 启动网页和持续采集，双击 `scripts\Stop-StarcupLive.cmd` 停止；数据库为 `data/starcup-final.sqlite3`，运行方式见 [本地运行说明](docs/LOCAL_RUN.md)。本地运行期间电脑须保持开机且不休眠；GitHub 方案启用后由云端独立计划采集，无需本机常开。
+
+首轮官方总分前三为 83.1、68.75、63.35。源站总榜未返回官方 rank，页面保留“—”并展示单独标注的总分参考排名。官方 Pass 成绩中的 Hidden 测试点是未公开结果占位：保留原值并使用官方给出的整条 score，不猜测其用时、精度或分数，也不从测试点拼出成绩。历史峰值只覆盖本地实际观测到的记录，不能追回采集前已经被覆盖的分数。
+
+需要接入其他赛事时，先发现并核验其字段，再运行以下通用流程：
 
 ```bash
 # 1. 查看实际公开赛事 ID、slug、标题、赛期和命中的筛选规则
@@ -91,6 +104,8 @@ python -m watcher backup backups/watcher.sqlite3
 
 ## Docker 常驻运行
 
+所选星辰杯决赛已准备独立的 [`docker-compose.starcup.yml`](docker-compose.starcup.yml)，固定公开赛事配置、独立数据卷并要求设置看板令牌。服务器选择、代码与真实历史迁移、SSH 查看、HTTPS 和重启验收见 [云端运行说明](docs/CLOUD_RUN.md)。下面命令仍为通用配置；本机尚未实跑 Docker 或部署云服务器。
+
 将 `.env.example` 复制为 `.env`，需要远程访问时先设置足够长的随机 `WATCHER_TOKEN`。
 
 ```bash
@@ -136,6 +151,8 @@ watcher/source.py     公开 API / 外部 CLI 只读接入、分页与封榜检�
 watcher/collector.py  轮询、失败记录、公开提交列表回补
 watcher/app.py        只读 Web API、后台轮询、认证与静态文件
 watcher/demo.py       明确隔离的 A/B 组合成演示
+watcher/github_monitor.py  云端单轮采集、跨任务历史与限流等待保存
+watcher/static_export.py   一致性只读视图、静态榜单/详情/证据导出
 web/                 看板、队伍详情、原始证据、CSV 导出
 ```
 

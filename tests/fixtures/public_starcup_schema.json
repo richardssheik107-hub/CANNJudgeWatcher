@@ -1,0 +1,51 @@
+{
+  "group": {"_id": "public-group"},
+  "contests": [{
+    "_id": "public-final",
+    "name": "ct_starcup_aiop_final",
+    "title": "星辰杯决赛（脱敏结构样例）",
+    "start_time": "2026-09-30T00:00:00.000Z",
+    "end_time": "2026-10-19T16:00:00.000Z",
+    "freeze_ranking": false,
+    "show_total_ranking": true,
+    "problems": [{"problem_id": "public-problem"}]
+  }],
+  "problem": {
+    "_id": "public-problem",
+    "title": "SparseFlashAttentionGrad 算子",
+    "cann_version": "9.0.0",
+    "ranking_submission_mode": "best",
+    "version_root_id": "public-problem",
+    "version_no": 1,
+    "score_mode": 0,
+    "use_baseline": false,
+    "iterations": 5,
+    "testcases": [
+      {"testcase_id": {"_id": "visible-case", "type": "default", "baseline": null}},
+      {"testcase_id": {"_id": "undisclosed-case", "type": "default", "baseline": null}}
+    ]
+  },
+  "ranking": {
+    "total": 1,
+    "rows": [{
+      "rank": 1,
+      "team": {"_id": "public-team", "team_name": "脱敏队伍"},
+      "submission_id": "public-submission",
+      "submission": {"_id": "public-submission", "status": "Pass", "create_time": "2026-10-06T06:30:49.220Z"},
+      "status": "Pass",
+      "create_time": "2026-10-06T06:30:49.220Z",
+      "score": 83.1,
+      "result": [
+        {"testcase_id": "visible-case", "time": 21.1, "precision_ratio": 1, "testcase_status": "Pass", "score": 0},
+        {"testcase_id": "undisclosed-case", "testcase_status": "Hidden", "time": null, "precision_ratio": null}
+      ]
+    }]
+  },
+  "totals": [{
+    "team": {"_id": "public-team", "team_name": "脱敏队伍"},
+    "submissionCount": 10,
+    "attemptCount": 1,
+    "passCount": 0,
+    "score": 83.1
+  }]
+}

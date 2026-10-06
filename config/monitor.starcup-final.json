@@ -1,0 +1,17 @@
+{
+  "transport": "http",
+  "cookie_env": "",
+  "poll_seconds": 120,
+  "request_gap_seconds": 1,
+  "timeout_seconds": 25,
+  "page_size": 100,
+  "max_ranking_pages": 20,
+  "verify_first_page": true,
+  "include_ended": true,
+  "rule_epoch": "observed-source-score-v1",
+  "problem_weights": {},
+  "include": [
+    {"slug": "ct_starcup_aiop_final"}
+  ],
+  "history_pages_per_poll": 0
+}
