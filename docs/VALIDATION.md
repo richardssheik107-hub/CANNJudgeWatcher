@@ -1,8 +1,16 @@
-# 验证记录 — 2026-10-06
+# 验证记录 — 2026-10-06 至 2026-10-07
+
+## 2026-10-07 仓库同步与容量维护
+
+- 自动更新最终配置提交 `66121a4` 已在 main；[CI 37494228035](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37494228035) 于北京时间 **00:15:36** 成功：Python **167 passed**、Node **23/23**、原生 workerd **6/6**，编译及前端语法检查通过。远端 monitor 为 active，只有 workflow_dispatch，reset_history 默认 false。
+- **00:16–00:18** 只读容量检查：活动 SQLite **507,904 字节**、7 快照，保护阈值 **90 MiB**；1/4/7 快照样本分别为 200,704 / 389,120 / 507,904 字节，活动 epoch 相同。以每天 144 份粗略外推约 13–17 天触及阈值，短样本不稳定，仅供规划，不能保证记录期限。自动归档尚未实现，长期运行需提前完成保留原始证据的归档或迁移。
+- 本仓库 artifact 共 **12 份 / 4,245,543 字节**，均为一天保留的预览；Pages 归档 0 份，最近自动运行的精确 ID 归档释放步骤成功。上述数值仅为本仓库当次检查，不代表整个账户余额。无凭据值的容量与 CI 证据保存在忽略目录 `data/github-validation/auto-refresh/final-ci-66121a4/`。
+- README 与云端运行说明补充每日免费额度、容量限制、尚未实现的归档及 **2026-11-05** 令牌到期维护；当前调用量约 144/100,000 = 0.144%/日，不能据此推断历史可无限保存。
+- 本次提交前本地检查：Python **167 passed / 74.71s**，编译和前端语法检查通过，保留 1 条已知 Starlette/AnyIO 弃用警告。首次运行有 4 项静态导出测试因产物路径达 261 字符碰到 Windows 长路径限制；使用短根目录 `.upload-validation/r-1007` 后全量通过，程序代码未变。两次测试产物均保留，未执行递归清理。
 
 ## Cloudflare 自动更新与官方工具接入（已完成）
 
-现行路径为 Cloudflare 免费十分钟 Cron → GitHub Actions 单轮公开采集和历史保存 → Pages 发布。两轮真实自动周期及持续打开页面的自动展示已验收；电脑和 Codex 无须常开。下面保留接入、失败定位和修复顺序的记录。
+现行路径为 Cloudflare 免费十分钟 Cron → GitHub Actions 单轮公开采集和历史保存 → Pages 发布。两轮真实自动周期及持续打开页面的自动展示已验收；电脑和 Codex 无须常开。下面保留 2026-10-06 接入、失败定位和修复顺序的记录，其中“等待”描述对应当时阶段，最终完成结果见两轮真实自动链路记录。
 
 - 用户完成 Cloudflare 登录和官方 Wrangler OAuth 授权。Wrangler **4.147.0** 已核验目标账户，使用 account/user 读取、Worker 脚本写入和日志读取范围；未读取、复制或向 Cloudflare 上传本机现有 GitHub CLI 凭据。
 - 已实际发布 `cannjudge-workflow-timer` 的引导版本 **e672b8b3-2c85-481d-ae27-6058cda17f6d**，使用仓库同一 `worker.mjs`，上传包 4.02 KiB / gzip 1.60 KiB，启动 1 ms。引导配置没有 Cron，没有 HTTP 路由，workers.dev 与预览 URL 关闭；用于接收随后由用户保存的 Secret，不能算自动调度已接通。

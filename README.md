@@ -21,6 +21,8 @@
 
 用户已确认全部公开，直接使用当前仓库。Cloudflare 定时触发、Actions 采集、跨任务历史保留、Pages 发布和页面自动展示均通过连续两轮真实验收。本机采集已停止；原生 GitHub schedule 已移除，保留 workflow_dispatch 手动入口。具体设置、费用条件、首次历史初始化与故障处理见 [GITHUB_RUN.md](docs/GITHUB_RUN.md)。公开仓库标准 Actions runner 无计算分钟费用，使用 GitHub 免费 Pages 地址和 Cloudflare Workers Free。云端队列可能延迟，不保证精确到分钟。专用 GitHub 令牌到期前须更新 Worker Secret，本次令牌到期日为 **2026-11-05**。
 
+每十分钟约 144 次/日，占 Cloudflare 每日 100,000 次免费额度的约 0.144%；额度每日重置，当前免费套餐没有固定试用截止日。历史存储仍受容量限制：活动数据库达到 **90 MiB** 会停止采集并保留已有历史，**自动归档尚未实现**。少量初始快照只能粗估增长速度，不能保证可连续记录的天数；长期运行须在达到限制前完成历史归档或存储迁移。容量检查与维护步骤见 [运行说明](docs/GITHUB_RUN.md#历史容量和-artifact-保留)。
+
 ## 先看本地演示
 
 Windows 本机已配置环境时，可双击 `scripts\Start-LocalDemo.cmd` 打开演示，双击 `scripts\Stop-LocalDemo.cmd` 停止。脚本会保留并复用已核验的演示库，重复启动不会重复生成数据，采集器保持关闭。其他 Python 路径、端口和日志位置见 [本地运行说明](docs/LOCAL_RUN.md)。

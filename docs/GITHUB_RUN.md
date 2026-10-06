@@ -10,7 +10,9 @@
 
 ## 免费条件与运行开关
 
-公开仓库使用标准 GitHub 托管 runner 时，Actions 运行时间免费；私有仓库按账户套餐使用分钟数与存储额度，超出额度可能收费或停止运行。当前账户剩余额度尚未核验，因此私有阶段只进行有限的手动试运行，不开启循环任务。[GitHub Actions 计费说明](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+当前公开仓库使用标准 GitHub 托管 runner，Actions 运行时间免费；artifact 存储仍受账户套餐额度约束，GitHub Free 的 500 MB artifact 额度与 GitHub Packages 共享。私有仓库的计算分钟、较大 runner 和额外存储须单独核对计费条件。[GitHub Actions 计费说明](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+
+Cloudflare Workers Free 当前提供每天 **100,000 次调用**、每次 **10 ms CPU**，账户最多 **5 个 Cron**。本项目使用一个 Cron，每十分钟约 **144 次/日**，仅占每日调用额度约 **0.144%**；两轮实际调用 CPU 为 2 ms / 1 ms。调用额度在 UTC 午夜（北京时间 08:00）重置，与同账户其他 Workers 共享。该套餐没有固定试用截止日，能否继续免费运行取决于当时政策及实际用量；调用次数、历史容量和令牌到期须分别维护。[Cloudflare 免费额度](https://developers.cloudflare.com/workers/platform/limits/)
 
 GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Team 或相应企业套餐。[Pages 可用范围](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 
@@ -107,6 +109,12 @@ Cloudflare `*/10 * * * *` 按 UTC 在每小时 0、10、20、30、40、50 分钟
 
 此方案适合当前小规模、有限赛期的观察，不能承诺无限历史永久免费保存。除了当前 SQLite 文件，还须关注状态分支的累积 Git 对象、静态导出大小和 Actions 存储用量。接近限制时先保存独立一致备份，再由操作人员规划存储迁移；不要批量删除文件、状态提交或历史证据。
 
+**自动归档尚未实现。** 2026-10-07 00:18（北京时间）只读容量检查：活动数据库为 **507,904 字节（约 0.48 MiB）**、7 份快照；同一活动历史从第 1 份的 200,704 字节增至第 4 份的 389,120 字节，再增至第 7 份的 507,904 字节。按每天 144 份及 1→7 / 4→7 的增长率线性外推，距 90 MiB 约 13–17 天；样本很少且增长不稳定，此数值仅供早期规划，不能作为剩余运行天数保证，也不能据此安排临近期限才维护。
+
+运行期间应定期核对 `watcher-state` 的 SQLite 大小、Actions 的 artifact 存储以及最新成功观测时间。在容量接近阈值前保存并校验一致性备份，再设计保留全部原始证据的归档或迁移；迁移需要回归验证当前榜、同基准完整提交比较和全部历史导出。发布的 Pages 网站上限为 1 GB、带宽软限制为每月 100 GB，亦须随历史和访问量增长核对。[Pages 容量限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
+
 手动预览和 Pages 部署 artifact 均设置为保留 **一天**；数据库持久状态在 Git 分支，不依赖 artifact 或缓存存活。Pages 部署成功后，工作流只按上传步骤返回的**本次 artifact 精确 ID**删除本次 `github-pages` 部署归档，并再次核验归档名和所属运行 ID。它不批量清理其他运行、不删除预览 artifact，也不删除 `watcher-state` 或成绩记录；部署失败则保留归档至平台保留期到期。
+
+Cloudflare 自动触发使用的 event 也是 workflow_dispatch，因此当前每轮也会生成上述一天保留的预览。2026-10-07 00:16 检查本仓库 12 份 artifact 合计 **4,245,543 字节（约 4.05 MiB）**，均为预览；没有遗留 Pages 部署归档。最新预览单份 249,399 字节，按每天 144 份粗算约 34 MiB 的一天保留量，文件会随历史增长变大；这不是整个账户的存储或计费余额。
 
 需要恢复时，先保存当前状态的独立备份并核验 SHA256 和 SQLite 完整性。不要将恢复操作伪装为首次初始化，不把演示库或人工导入库替换成正式云端状态。恢复方案应保证原证据可审计且不会丢失未迁出的历史。
