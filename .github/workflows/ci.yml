@@ -1,0 +1,55 @@
+name: Validate watcher
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      live_probe:
+        description: Run a bounded, read-only public-source probe (no credentials)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: python -m compileall -q watcher
+      - run: node --check web/app.js
+  public-probe:
+    if: github.event_name == 'workflow_dispatch' && inputs.live_probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Discover public contests
+        run: python -m watcher discover > discovery.json
+      - name: Collect one bounded round
+        run: python -m watcher poll > poll-report.json
+      - name: Export any completed snapshots
+        if: always()
+        run: python -m watcher export public-probe.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-source-probe
+          path: |
+            discovery.json
+            poll-report.json
+            public-probe.jsonl
+          retention-days: 7

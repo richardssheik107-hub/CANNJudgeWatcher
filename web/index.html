@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CANNJudge · 历史峰值看板</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header class="topbar"><a class="brand" href="/">C<span>J</span><b>CANNJudge <em>Watcher</em></b></a><div class="top-right"><span id="live-status" class="status">正在读取</span><button id="token-button" class="quiet">访问令牌</button></div></header>
+<main>
+<section class="intro"><div><p class="eyebrow">COMPETITION INTELLIGENCE / 赛事观察</p><h1>看见成绩的<span>完整轨迹。</span></h1><p class="muted">当前榜单之外，保留每一次已观测的突破。</p></div><div class="intro-aside"><b>OBSERVED, NOT ASSUMED.</b><span>只记录证据，不推测隐藏成绩</span></div></section>
+<div id="demo-banner" class="banner demo hidden">演示模式 · 以下均为合成数据，不代表真实赛事当前排名。</div>
+<div id="error" class="banner error hidden" role="alert"></div>
+<section class="controls"><label>赛事 / 赛段 / 规则版本<select id="scope"><option>等待数据</option></select></label><label class="search">搜索队伍<input id="search" type="search" placeholder="输入队伍名称或 ID"></label><label>排序<select id="sort"><option value="peak">历史峰值合计</option><option value="current">官方当前总分</option></select></label><button id="refresh">刷新看板</button><button id="export-csv" class="quiet">导出 CSV</button></section>
+<section class="metrics"><article><span>已观测队伍</span><strong id="teams">—</strong><small>包括已离开当前榜单的队伍</small></article><article><span>高于当前展示分数</span><strong id="regressions">—</strong><small>历史差值，不等同于主动藏分</small></article><article><span>已保存榜单快照</span><strong id="snapshots">—</strong><small id="coverage">尚未开始采集</small></article><article><span>最近完整观测</span><strong id="latest" class="time">—</strong><small id="freshness">尚无真实数据</small></article></section>
+<section class="board-card"><div class="board-title"><div><p class="eyebrow">OBSERVED PEAK</p><h2 id="board-title">各队逐题最高分合计</h2></div><span id="epoch" class="pill">历史已观测值</span></div><div class="table-wrap"><table><thead><tr><th>排名（<span class="purple">合计</span> / <span class="amber">官方</span>）</th><th>队伍</th><th>总分（<span class="green">官方</span> / <span class="blue">峰值</span>）</th><th>历史差值</th><th>题目覆盖</th></tr></thead><tbody id="rows"></tbody></table></div><div id="empty" class="empty">还没有已保存的榜单。启动采集器后，此处将显示公开可核验的观测结果。<br><code>python -m watcher serve --poll</code></div><footer class="board-footer"><span id="row-count"></span><span>点击队伍，查看逐题最佳与提交证据 →</span></footer></section>
+<section class="notes"><h3>如何读这张榜</h3><p id="warning">峰值合计 = 每道题已观测到的有效完整成绩取最大值后求和。不同题目的最佳值可以来自不同提交；同一道题不会拼接不同提交的测试点。</p><p>历史分数可能使用不同的全场基准。本榜不是官方最终榜，也不推断未提交、未公开或漏采的成绩。缺少官方名次时显示“—”，参考排名不冒充官方排名。</p><div id="source-notes"></div></section>
+<details class="health"><summary>采集运行记录与历史导出</summary><button id="export-json" class="quiet">导出全部已保存快照 JSONL</button><div id="runs"></div></details>
+<footer class="page-footer"><span>CANNJudgeWatcher · Evidence first</span><span>历史记录不覆盖 · 赛段隔离 · 只读采集</span></footer>
+</main>
+<dialog id="team-dialog"><div class="dialog-head"><div><p class="eyebrow">TEAM EVIDENCE</p><h2 id="team-title"></h2></div><button id="close-dialog" class="quiet" aria-label="关闭详情">关闭 ✕</button></div><div id="team-content"></div></dialog>
+<script src="/static/app.js" defer></script>
+</body></html>

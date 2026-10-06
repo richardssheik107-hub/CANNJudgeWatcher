@@ -1,0 +1,16 @@
+services:
+  watcher:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:8080"
+    environment:
+      WATCHER_TOKEN: ${WATCHER_TOKEN:-}
+      CANNJUDGE_COOKIE: ${CANNJUDGE_COOKIE:-}
+    volumes:
+      - watcher-data:/data
+      - ./config/monitor.json:/app/config/monitor.json:ro
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  watcher-data:

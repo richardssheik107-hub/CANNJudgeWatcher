@@ -1,0 +1,13 @@
+data/
+*.sqlite3*
+*.db*
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.jsonl
+vendor/
+node_modules/

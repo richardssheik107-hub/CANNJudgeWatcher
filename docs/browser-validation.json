@@ -1,0 +1,9 @@
+{
+  "browser_errors": [],
+  "B_rows": 12,
+  "A_rows": 11,
+  "search": "passed",
+  "evidence": "passed",
+  "viewports": "390/1440",
+  "transport": "FastAPI TestClient bridge; not live HTTP navigation"
+}
