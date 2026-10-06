@@ -1,6 +1,6 @@
 # Cloudflare 免费定时触发器
 
-源码和离线测试随仓库保存，真实令牌仅保存在用户 Cloudflare Worker Secret 中。离线测试不会触发真实工作流；实际部署、Secret 接入和自动更新验收状态见仓库 `docs/VALIDATION.md`。
+源码和离线测试随仓库保存，真实令牌仅保存在用户 Cloudflare Worker Secret 中。当前生产触发器已完成连续两轮真实 Cron 验收，电脑和 Codex 无须常开；实际部署、Secret 接入和验证证据见仓库 `docs/VALIDATION.md`。
 
 每 10 分钟由 Cloudflare Cron 调用现有 GitHub 工作流：固定 `richardssheik107-hub/CANNJudgeWatcher`、`main`、`monitor.yml`，输入固定为 `{"reset_history":false}`。采集、保存历史与 Pages 发布仍由现有 GitHub 工作流执行。Worker 没有 `fetch` 处理器；`workers.dev`、预览 URL 和自定义路由均关闭。
 
@@ -49,7 +49,7 @@ Cloudflare 会保存这个专用 GitHub 授权；它不是“凭据完全不离�
 - 一次 Cron 只发一次 POST；401、429、5xx、网络失败或 10 秒超时会记录固定字段的安全 JSON 并抛出异常，不立即重试。未知超时可能已经被 GitHub 接受，因此不用重试制造重复任务。
 - 成功仅认可官方新版 200 和旧版 204；不读取响应内容。日志不包含令牌、Authorization、响应正文或外部错误文本。
 - 请求使用 Workers 原生运行时支持的 `redirect: 'manual'`；每个 3xx 都失败，绝不跟随跳转或发出第二次请求。不能使用 `redirect: 'error'`，原生 workerd 会在联网前拒绝该值。
-- 固定 payload 的 `reset_history` 是布尔 `false`，不受环境变量或调用方覆盖。现有工作流的手动触发路径会绕过原生 `schedule` 开关，因此启用这个 Cron 后就是另一条采集触发路径。
+- 固定 payload 的 `reset_history` 是布尔 `false`，不受环境变量或调用方覆盖。当前工作流只保留 `workflow_dispatch`，不依赖旧 `ENABLE_GITHUB_MONITOR` 变量；自动采集由本 Worker 的 Cron 控制。
 - 外部 Cron 替代 GitHub 原生调度触发，不保证整点完成。GitHub 队列和现有串行工作流仍可能延迟；现有 collect/deploy 超时上限为 8/12 分钟。
 - Free 额度为每日 100,000 调用、每次 10 ms CPU、每账户 5 个 Cron。每 10 分钟约 144 次/日；网络等待不计 CPU，但实际云端 CPU 和联网情况仍需部署后核验。
 

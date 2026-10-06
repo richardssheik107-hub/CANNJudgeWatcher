@@ -4,7 +4,7 @@
 
 固定比赛是 [星辰杯决赛公开榜](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。程序使用 `config/monitor.starcup-final.json`：精确匹配 `ct_starcup_aiop_final`、`cookie_env` 为空、公开提交列表回补关闭。只读取公开榜单、题目元信息及完整赛事详情中的评分规则，不执行提交、登录或选手源码抓取。
 
-**当前交付状态：用户已确认全部公开，直接使用当前仓库。定时采集和 Pages 发布开关均为 true；手动云端采集、历史恢复与部署成功，自动触发尚未通过验收。** 2026-10-06 21:31（北京时间）检查发现全仓库 `event=schedule` 运行数量为 0，不能把已启用配置或手动成功视为自动更新已验证。已安排正常补采，并尝试一次 cron 分钟变更；必须以实际 schedule 运行和新增网页快照确认恢复，具体结果见 [验证记录](VALIDATION.md)。
+**当前交付状态：用户已确认全部公开，直接使用当前仓库；免费 Cloudflare Cron 每 10 分钟触发 Actions，Pages 发布已启用，连续两轮自动更新验收成功。** 2026-10-06（北京时间）23:40 / 23:50 的真实 Cron 均收到 GitHub 200，采集与发布成功，最新观测分别为 23:40:46 / 23:50:47，快照 3→4→5；持续打开的页面自行显示新数据。原生 GitHub schedule 持续没有生成运行，现已移除，保留 workflow_dispatch。具体结果见 [验证记录](VALIDATION.md)。
 
 在线地址：[CANNJudgeWatcher 看板](https://richardssheik107-hub.github.io/CANNJudgeWatcher/)。无需本机开机或输入 CANN 账号密码。
 
@@ -16,16 +16,16 @@ GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Te
 
 公开仓库意味着代码、`watcher-state` 的公开成绩历史及提交记录都可以被访问。本次已获得用户“全部公开，不用新建仓库”的明确确认，并将原仓库设为公开；没有创建新仓库。
 
-在仓库 `Settings → Secrets and variables → Actions → Variables` 配置以下变量，值须为小写 `true`：
+在仓库 `Settings → Secrets and variables → Actions → Variables` 将 `ENABLE_GITHUB_PAGES` 设为小写 `true`；自动采集由 Cloudflare Worker 的 Cron 控制：
 
 | 仓库状态／变量 | 实际行为 |
 | --- | --- |
-| 私有仓库 | 允许 `workflow_dispatch` 手动试运行；计划采集和 Pages 发布均关闭 |
-| 公开仓库，`ENABLE_GITHUB_MONITOR=true` | 启用十分钟计划采集 |
+| 私有仓库 | 允许 `workflow_dispatch` 试运行；免费 Pages 发布关闭，接入外部 Cron 前须单独确认费用和公开范围 |
+| Cloudflare 生产 Worker 具有专用 Secret 和 `*/10 * * * *` Cron | 每十分钟向固定仓库发一次 workflow_dispatch；启停在 Cloudflare 管理 |
 | 公开仓库，`ENABLE_GITHUB_PAGES=true` | 成功保存本轮状态后，允许发布生成的静态页面 |
-| 变量为空或不等于 `true` | 对应计划／页面开关关闭；手动试运行仍可以使用 |
+| Pages 变量为空或不等于 `true` | 不发布页面；已经启用的 Cloudflare Cron 仍可采集和保存历史 |
 
-两个变量分别控制采集与发布。只开启 Pages 不会开启定时采集，只开启采集则不会发布网页。手动运行仍可能消耗私有仓库额度。
+原 `ENABLE_GITHUB_MONITOR` 变量不控制当前外部 Cron。只开启 Pages 不会产生定时采集；停止自动采集应移除 Cloudflare Cron 或撤销专用令牌。手动运行仍可能消耗私有仓库额度。
 
 ## 一次性迁入本机真实历史
 
@@ -68,21 +68,21 @@ GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Te
 ## 先手动验证，再启用计划和页面
 
 1. 把本轮代码及 `.github/workflows/monitor.yml` 放到默认分支，并完成上面的显式初始化。仓库须允许 Actions 使用工作流所声明的 `contents: write` 权限保存状态；授权来自 GitHub 提供的工作流令牌，无须保存 CANN 密码。
-2. 打开 `Actions → Starcup monitor → Run workflow`，选择默认分支。先保持两个运行变量关闭。
+2. 打开 `Actions → Starcup monitor → Run workflow`，选择默认分支。先保持 Pages 变量关闭，不配置外部 Cron。
 3. 查看运行摘要中的 `status`、`snapshot_count_before`、`snapshot_count_after` 和 `state_pushed`。完整采集应为 `SUCCESS`，新快照数增加；`state_pushed=true` 表示历史已保存，但不代表 Pages 已上线。
 4. 再手动运行一次。核对第二轮恢复了第一轮的快照、原首份观测时间及峰值证据。手动成功试运行会提供 `starcup-preview-运行ID` 预览 artifact，保留一天。
-5. 确认公开范围及免费条件后，将仓库设为公开；在 `Settings → Pages → Build and deployment` 将发布来源设为 `GitHub Actions`，再开启两个变量。
-6. 手动运行一次发布，打开 `deploy` 作业实际返回的 Pages 地址。核对完整榜单、队伍详情、原始成绩证据、CSV 和 JSONL 导出，以及项目子路径下的资源加载。随后核验至少两次计划任务持续恢复和增加历史。
+5. 确认公开范围及免费条件后，将仓库设为公开；在 `Settings → Pages → Build and deployment` 将发布来源设为 `GitHub Actions`，再开启 Pages 变量。
+6. 手动运行一次发布，打开 `deploy` 作业实际返回的 Pages 地址。核对完整榜单、队伍详情、原始成绩证据、CSV 和 JSONL 导出，以及项目子路径下的资源加载。按 [Cloudflare 触发器说明](../integrations/cloudflare-scheduler/README.md) 配置专用 Secret 和十分钟 Cron，随后核验至少两次真实计划任务持续恢复和增加历史。
 
 只有源站真实采集、跨 runner 恢复和网页访问均通过，才能宣布在线运行完成。确定云端正常后可用本地 `Stop-StarcupLive.cmd` 停止本机采集；迁入后继续产生的本地新历史不会自动合并到云端。
 
 ## 十分钟更新及失败行为
 
-工作流在每小时第 3、13、23、33、43、53 分钟计划运行，使用默认分支上的代码。这次分钟变更用于尝试重新登记调度，不能单独证明自动触发已恢复。GitHub 调度可能延迟，繁忙时甚至丢弃排队任务；公开仓库无活动 60 天会停用定时工作流。当前计划不能承诺严格每十分钟捕获一次成绩，更不能捕获源站每次瞬间变化。[官方定时规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+Cloudflare `*/10 * * * *` 按 UTC 在每小时 0、10、20、30、40、50 分钟计划触发；本次原生 GitHub schedule 已移除，固定 dispatch 调用 `main` 上的 `monitor.yml`，reset_history 始终为 false。计划点、实际调用、runner 排队、采集和网页发布是不同时间；队列仍可延迟，不能承诺精确到分钟捕获成绩或捕获每次瞬间变化。[Cloudflare Cron 说明](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 
-排查时先查看 Actions 的触发事件：没有 `event=schedule` 的运行表示尚未进入采集作业；有运行但失败则检查 collect 的报告、源站状态与退避；collect 成功且网页未更新则检查 deploy。正常手动补采必须保持 `reset_history=false`，避免再次清空历史。仅有绿色手动运行不能关闭定时故障。
+排查时先看 Worker Cron 日志：`dispatch-accepted` 仅代表 GitHub 接受请求，再关联对应时间的 Actions **workflow_dispatch** 运行。外部自动触发和手动运行的 event 相同，须结合 Cron 时间和日志判断，不能只看 event。Worker 没有成功日志则检查 Secret、到期日及固定错误代码；有运行但失败则检查 collect 的报告、源站状态与退避；collect 成功且网页未更新则检查 deploy。正常手动补采必须保持 `reset_history=false`，避免再次清空历史。
 
-每次 runner 都从远端状态恢复，运行最多一轮，然后结束。固定并发组避免两个工作流同时修改状态，SQLite 快照和页面导出也使用一致视图。页面每分钟重新读取已发布文件，只刷新展示；采集频率由 Actions 决定。
+每次 runner 都从远端状态恢复，运行最多一轮，然后结束。固定并发组避免两个工作流同时修改状态，SQLite 快照和页面导出也使用一致视图。页面可见且没有打开详情时每分钟重新读取已发布文件；采集频率由 Cloudflare Cron 决定。关闭电脑、Codex 或浏览器不影响云端任务。
 
 | 报告状态 | 行为 |
 | --- | --- |
@@ -99,7 +99,7 @@ GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Te
 
 ## 历史、容量和 artifact 保留
 
-原生 schedule 持续不触发时，可使用 [`integrations/cloudflare-scheduler/`](../integrations/cloudflare-scheduler/README.md) 中的免费 Cloudflare Cron 触发器。每 10 分钟向固定仓库的 `monitor.yml` 发送 `workflow_dispatch`，输入始终为 `reset_history=false`，采集和 Pages 发布仍复用现有工作流。源码和离线测试已准备；只有 Cloudflare 日志、对应 Actions 采集部署及网页时间连续两轮均增加，才能确认此路径自动运行。账号注册及专用令牌配置尚需用户完成，不能把离线通过当作已部署。
+当前使用 [`integrations/cloudflare-scheduler/`](../integrations/cloudflare-scheduler/README.md) 中已部署并通过两轮验收的免费 Cloudflare Cron 触发器。令牌只保存在生产 Worker 的加密 Secret 中，仅授予本仓库 Actions 写权限。专用令牌到期前须由用户更新 Secret，本次到期日为 **2026-11-05**；到期或撤销后触发会失败，已保存的历史保留。
 
 静态页面保留完整当前榜及可追溯成绩证据；队伍图表默认加载最近 200 份快照，更早的完整快照由页面 JSONL 导出提供。星辰杯主榜从全部已保存的候选中，只比较当前基准下可确认的完整提交成绩，并显示可确认覆盖；本轮官方完整成绩可作锚点，旧提交缺少隐藏测试点等必要数据时不能重算，也不沿用旧分。历史审计仍保留原始官方分数和旧峰值。公开总榜没有官方名次时继续显示未知值，参考排名和可确认最高分不会被称为官方最终榜，已观测候选的完整覆盖也不表示覆盖开赛以来全部提交。
 

@@ -8,8 +8,6 @@ on:
         required: false
         type: boolean
         default: false
-  schedule:
-    - cron: '3,13,23,33,43,53 * * * *'
 
 permissions:
   contents: read
@@ -20,9 +18,8 @@ concurrency:
 
 jobs:
   collect:
-    # Manual trials work in the current private repository. Recurring free
-    # collection starts only after the public publication scope is confirmed.
-    if: github.event_name == 'workflow_dispatch' || (github.event.repository.private == false && vars.ENABLE_GITHUB_MONITOR == 'true')
+    # Cloudflare Cron and explicit manual runs share this dispatch path.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     permissions:

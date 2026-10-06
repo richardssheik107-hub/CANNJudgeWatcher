@@ -1,6 +1,8 @@
 # 验证记录 — 2026-10-06
 
-## Cloudflare 账号接入与官方工具安装
+## Cloudflare 自动更新与官方工具接入（已完成）
+
+现行路径为 Cloudflare 免费十分钟 Cron → GitHub Actions 单轮公开采集和历史保存 → Pages 发布。两轮真实自动周期及持续打开页面的自动展示已验收；电脑和 Codex 无须常开。下面保留接入、失败定位和修复顺序的记录。
 
 - 用户完成 Cloudflare 登录和官方 Wrangler OAuth 授权。Wrangler **4.147.0** 已核验目标账户，使用 account/user 读取、Worker 脚本写入和日志读取范围；未读取、复制或向 Cloudflare 上传本机现有 GitHub CLI 凭据。
 - 已实际发布 `cannjudge-workflow-timer` 的引导版本 **e672b8b3-2c85-481d-ae27-6058cda17f6d**，使用仓库同一 `worker.mjs`，上传包 4.02 KiB / gzip 1.60 KiB，启动 1 ms。引导配置没有 Cron，没有 HTTP 路由，workers.dev 与预览 URL 关闭；用于接收随后由用户保存的 Secret，不能算自动调度已接通。
@@ -14,6 +16,9 @@
 - 修复通过 **23 项 Node 测试**及原生 workerd 完整 scheduled 路径 **6/6** 回归：204 接受；301/302/303/307/308 拒绝。globalOutbound 只路由纯本地 fixture，固定 GitHub 目标、一次 POST、输入 reset_history=false 均被校验，没有外网 dispatch 或真实凭据。修复已于约 **23:35** 发布，版本 **6af180d5-d3a4-4b10-bc24-b91e801cca7d**，上传 4.07 KiB / gzip 1.63 KiB，启动 2 ms；十分钟 Cron 不变，继续等待线上连续自动周期。
 - 原生运行时回归已保存在 `integrations/cloudflare-scheduler/runtime-tests/`，直接 embed 实际源码而非镜像实现，internet 服务 allow=[]，只使用本地 fixture 和明确占位符。固定官方命令 `npx --yes workerd@1.20261001.1 test integrations/cloudflare-scheduler/runtime-tests/config.capnp` **6/6 通过**，已接入 CI；更新后的工作流 actionlint 通过。
 - 修复后第一轮真实自动链路：Cloudflare **23:40:25** Cron → **23:40:28.807** GitHub 200 接受（2 ms CPU / 3047 ms wall time、1 请求、reset=false）→ [Actions 37489490941](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37489490941) **23:40:28** 创建，collect / deploy 全成功，**23:41:08** 完成。Pages 21 队、快照 **3→4**，最近完整观测 **23:40:46.713571**，原观测起点和零失败数保持；JSONL 4 行。自 **23:27** 打开并保持可见的真实 Pages 标签页未重载、未点击检查按钮，**23:41** DOM 自行变为 4 快照 / 23:40:46，已核验前端自动展示。第二轮连续周期仍待验证；记录在忽略目录 `auto-refresh/cron-acceptance/`。
+- 修复代码提交 `b2b4bbd` 的 [CI 37490085984](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37490085984) 已在 Ubuntu 24.04 成功，于 **23:45:14** 完成：Python **167 passed**、Node **23/23**、官方原生 workerd **6/6**；编译和前端语法检查亦成功，人工 public-probe 未触发。
+- 第二轮真实自动链路：同一 Worker 版本 **23:50:25** Cron → **23:50:27.402** GitHub 200 接受（1 ms CPU / 1659 ms wall time、1 请求、reset=false）→ [Actions 37490867533](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37490867533) **23:50:27** 创建，collect / deploy 全成功，**23:51:17** 完成。Pages 21 队、快照 **4→5**、JSONL 5 行，最近完整观测 **23:50:47.466214**；活动 epoch 仍 **21:17:00.683856**，首次快照仍 **21:17:09.908611**，失败数 0。持续打开且可见的同一标签页再次自行变为 5 快照 / 23:50:47，期间未重载或点击检查按钮。
+- 两轮均由真实 Cron 发起，未人工 dispatch。自动触发、完整采集、历史追加、Pages 发布和前端自动展示连续成功，完成验收后移除 monitor 原生 schedule，并将 collect 明确限制为 workflow_dispatch；Cloudflare 十分钟 Cron、手动入口、权限和 reset 默认 false 保留。专用 Secret 到期日 **2026-11-05**，到期前需更新；MCP 新工具重启 Codex 后加载，不影响已经运行的云端任务。
 
 ## 自动刷新修复继续排查
 
