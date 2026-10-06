@@ -33,6 +33,7 @@ jobs:
           CANNWATCHER_TEST_ARTIFACTS: ${{ runner.temp }}/cannwatcher-test-artifacts
       - run: python -m compileall -q watcher
       - run: node --check web/app.js
+      - run: node --test integrations/cloudflare-scheduler/worker.test.mjs
   public-probe:
     if: github.event_name == 'workflow_dispatch' && inputs.live_probe
     runs-on: ubuntu-latest

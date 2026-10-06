@@ -7,6 +7,8 @@
 - 本地一致备份有 33 份快照，19:12–20:21 的后段每 124–136 秒自动采集；本地 8088 进程于 20:21:49 停止。首次云初始化的 21 份与本地前 21 份时间/digest 完全相同，旧云库后来新增的 5 份逐一对应人工云采集。monitor 现有运行编号连续 1–7，均为 workflow_dispatch；另一自动工作流是 push CI，并不采集榜单。
 - 增加独立 `Starcup schedule probe`，新 workflow ID、每 5 分钟只输出实际触发事件与 UTC 时间，无 job 条件、无仓库权限、无采集和发布，用于区别旧工作流登记与平台触发问题。探针成功本身不等于自动采集已恢复；实际结果待记录。
 - 这轮完整回归 **167 passed / 60.68s**，编译、前端语法、actionlint 与 diff 检查通过。Cloudflare 免费定时触发器在忽略目录准备，用户已选择注册免费账号；尚未创建令牌或部署外部服务，须在用户完成账号注册后继续。
+- Cloudflare 触发器经只读审查后纳入 `integrations/cloudflare-scheduler/`，**18 项离线 Node 测试**通过，并接入 CI。固定目标、禁止 reset、无公开 HTTP 入口、凭据及响应正文不进入日志；每次只请求一次，10 秒超时。Wrangler **4.147.0** 的真实 `deploy --dry-run` 成功，包 3.98 KiB / gzip 1.58 KiB，未进行云端部署或 GitHub dispatch。必需 Secret 已声明并核对官方配置支持；配置保持 workers_dev/preview_urls 关闭。
+- 已打开 Cloudflare 注册页并交由用户完成账号注册、协议、人机和邮箱验证；本机未发现可用 Cloudflare 登录配置。当前仍须登录及配置仅此仓库的 Actions 写权限专用令牌后，才能完成两轮真实自动触发与 Pages 验收。22:04 检查独立探针和原 monitor 仍无 schedule 记录，尚未将自动恢复标记成功。
 
 ## 定时更新未触发的排查
 

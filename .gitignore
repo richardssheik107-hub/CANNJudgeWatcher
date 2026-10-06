@@ -11,3 +11,5 @@ __pycache__/
 *.jsonl
 vendor/
 node_modules/
+.wrangler/
+.dev.vars*

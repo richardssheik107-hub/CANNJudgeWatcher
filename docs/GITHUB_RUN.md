@@ -99,6 +99,8 @@ GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Te
 
 ## 历史、容量和 artifact 保留
 
+原生 schedule 持续不触发时，可使用 [`integrations/cloudflare-scheduler/`](../integrations/cloudflare-scheduler/README.md) 中的免费 Cloudflare Cron 触发器。每 10 分钟向固定仓库的 `monitor.yml` 发送 `workflow_dispatch`，输入始终为 `reset_history=false`，采集和 Pages 发布仍复用现有工作流。源码和离线测试已准备；只有 Cloudflare 日志、对应 Actions 采集部署及网页时间连续两轮均增加，才能确认此路径自动运行。账号注册及专用令牌配置尚需用户完成，不能把离线通过当作已部署。
+
 静态页面保留完整当前榜及可追溯成绩证据；队伍图表默认加载最近 200 份快照，更早的完整快照由页面 JSONL 导出提供。星辰杯主榜从全部已保存的候选中，只比较当前基准下可确认的完整提交成绩，并显示可确认覆盖；本轮官方完整成绩可作锚点，旧提交缺少隐藏测试点等必要数据时不能重算，也不沿用旧分。历史审计仍保留原始官方分数和旧峰值。公开总榜没有官方名次时继续显示未知值，参考排名和可确认最高分不会被称为官方最终榜，已观测候选的完整覆盖也不表示覆盖开赛以来全部提交。
 
 数据库达到 **90 MiB** 时明确停采；每轮结束后的备份也会再次检查。这个保护早于 GitHub 对大于 **100 MiB** 普通文件的阻止规则。程序不会自动删除历史、压缩掉证据、切换到空库或重写状态分支来腾空间。[GitHub 文件和仓库大小规则](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
