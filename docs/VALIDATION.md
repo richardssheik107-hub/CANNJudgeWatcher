@@ -1,6 +1,6 @@
 # 验证记录 — 2026-10-06
 
-## 用户请求清空活动历史并重新采集（验收进行中）
+## 用户请求清空活动历史并重新采集（已完成）
 
 本次明确要求清空看板的历史数据并重新开始更新。操作使用新的活动数据库，旧数据退出看板、曲线和导出，保留可恢复备份，遵守禁止批量删除文件的约束。
 
@@ -9,7 +9,10 @@
 - 手动 workflow 输入 `reset_history` 默认 false；定时采集仍继续追加。重置只在新一轮完整成功时更新活动状态，失败保留旧状态。
 - 完整回归 **167 passed in 64.46s**，包括 34 项 monitor 测试；1 条已知第三方 AnyIO 弃用警告。首轮使用过长的 Windows 临时目录导致 4 项文件路径失败，缩短保留目录后全量通过。Python 编译、JavaScript 语法、actionlint 与 diff 检查通过。
 - 无推送真实试采：`data/github-validation/history-reset/local-candidate-1/` 恢复旧 26 份后，在新库成功采集 **21:13:42（北京时间）** 的 1 份快照、21 队，规则核验成功；JSONL 恰好 1 行。9 条有效完整提交的当前分、当前基准确认值与新观测审计值一致，旧 83.1 未进入新榜。旧恢复库与线上页面未受试采影响。
-- 云端部署与本地替换结果待本轮验收完成后填写。
+- 重置代码 `554ec3a` 的 [CI 37469452854](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37469452854) 成功，**167 passed / 6.20s**；[重置采集与部署 37469547229](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37469547229) 的 collect / deploy 均成功。报告明确 `reset_history=true`、旧 26 份变为新 1 份、状态推送及网站就绪成功。
+- 新状态提交 `78eb35774f7391ef42ed99dc465a8fc7760d983a` 的父提交仍为原 `d5bd487`，无强推。元数据记录重置起点 **21:17:00**，首份完整快照 **21:17:09.908611（北京时间）**；SHA-256、SQLite quick_check、单一作用域及零导入记录核验通过。21 队、9 条有效完整提交，主榜当前分与新观测确认值一致：南工工南 **93.60**、Controlvector **65.41**、All in AI **55.25**。
+- 实际 Pages 的 JSONL 仅 1 行，首次/最近观测均为 **21:17:09**，无旧记录，线上 JavaScript 与本地一致。浏览器已打开新网页，显示 21 队、1 份快照与新起点；实拍 `data/github-validation/history-reset/online/overview.png`。真实 API 与导出核验证据保存在同目录及 `cloud-reset-1/`。
+- 本地旧主库、WAL、SHM 按三个明确路径逐个移入备份目录，活动 `data/starcup-final.sqlite3` 复制已校验的新云端一致数据库；哈希相同、quick_check 通过，快照与运行记录各 1 份，首次证据时间为新起点。无本地采集服务运行；云端计划采集和 Pages 开关仍为 true，后续定时输入默认不重置。
 
 ## 最新基准与完整提交口径修复
 
