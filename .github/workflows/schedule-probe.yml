@@ -1,0 +1,30 @@
+name: Starcup schedule probe
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '1-59/5 * * * *'
+
+permissions: {}
+
+jobs:
+  clock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record the actual trigger without contacting the contest
+        env:
+          TRIGGER_EVENT: ${{ github.event_name }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          print(json.dumps({
+              'event': os.environ['TRIGGER_EVENT'],
+              'schedule': os.environ['TRIGGER_SCHEDULE'],
+              'run_id': os.environ['WORKFLOW_RUN_ID'],
+              'observed_at': datetime.now(timezone.utc).isoformat(),
+          }))
+          PY
