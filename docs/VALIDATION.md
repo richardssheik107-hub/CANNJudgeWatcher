@@ -1,5 +1,20 @@
 # 验证记录 — 2026-10-06
 
+## Cloudflare 账号接入与官方工具安装
+
+- 用户完成 Cloudflare 登录和官方 Wrangler OAuth 授权。Wrangler **4.147.0** 已核验目标账户，使用 account/user 读取、Worker 脚本写入和日志读取范围；未读取、复制或向 Cloudflare 上传本机现有 GitHub CLI 凭据。
+- 已实际发布 `cannjudge-workflow-timer` 的引导版本 **e672b8b3-2c85-481d-ae27-6058cda17f6d**，使用仓库同一 `worker.mjs`，上传包 4.02 KiB / gzip 1.60 KiB，启动 1 ms。引导配置没有 Cron，没有 HTTP 路由，workers.dev 与预览 URL 关闭；用于接收随后由用户保存的 Secret，不能算自动调度已接通。
+- 按用户指定的 [Cloudflare 官方 Agent Setup](https://developers.cloudflare.com/agent-setup/prompt.md) 安装 `cloudflare/skills` 的 **16 个**官方技能，固定来源提交 `41e0d19858946d18af9ee2c2feebbe2e11d829ff`，348 个文件哈希匹配；安装 staging 与证据全部保留，没有递归清理。用户级技能及配置不上传项目仓库。
+- 官方 Cloudflare MCP 已添加为 `https://mcp.cloudflare.com/mcp`。用户明确批准所需 Worker 脚本读写、日志读取和观测读写权限；使用指定范围的 DCR OAuth 完成登录，**23:01:35** CLI 返回成功，后续只读检查确认 `auth_status=o_auth`。MCP 新工具须重启 Codex 后加载；本轮部署继续使用已授权 Wrangler，无须现在重启。
+- **23:12:15** 再次核对：monitor 共 8 次成功运行，均为 workflow_dispatch，schedule 为 0；Pages 仍为 21 队、3 份快照，最近 **22:13:25**，历史起点仍 **21:17:00**。未新增人工补采或将人工记录当作自动恢复。
+- GitHub 专用 fine-grained token 创建页已准备：仅 `CANNJudgeWatcher`、Actions 读写、必需 Metadata 读取、到期 **2026-11-05**；用户接手生成、复制并保存至生产 Worker 的 `GITHUB_DISPATCH_TOKEN` Secret。正式 `*/10` Cron 部署和两个连续无人操作周期的验收仍待该凭据接入后进行，当前未宣称自动刷新已修复。无凭据值的截图和安装报告保存在忽略目录 `data/github-validation/`。
+- **23:20:46** 完成提交前验证：全量 **167 passed / 69.45s**，Python 编译和前端 JavaScript 语法检查通过；1 条已知第三方 Starlette/AnyIO 弃用警告。pytest 使用保留临时目录插件，不执行递归清理，证据目录为仓库外 `.upload-validation/cfs-231936884`。
+- 随后用户确认专用令牌已生成并私密保存到 Cloudflare。Wrangler 只读取密钥列表，确认 `GITHUB_DISPATCH_TOKEN` 类型为 `secret_text`；仪表盘显示 **Value encrypted**。正式配置部署成功，版本 **439dcb20-adf2-438e-a2f7-1c2bb2b1a8c5**，上传 3.98 KiB / gzip 1.58 KiB，启动 4 ms，计划为 **`*/10 * * * *`**。**23:25** 仪表盘显示 Every 10 minutes、下次 UTC 15:30（北京时间 23:30）；已开始监听此版本的安全 Cron 日志，等待两轮真实自动采集与 Pages 更新，期间不人工 dispatch。
+- **23:30:27** 收到首个真实 Cron：1 ms CPU / 2 ms wall time，安全报告为 `network-error`，GitHub 未产生新运行。官方原生 **workerd 1.20261001.1**、相同兼容日期下复现 `redirect: 'error'` 在请求构造时抛 TypeError；[官方运行时源码](https://github.com/cloudflare/workerd/blob/main/src/workerd/api/http.c%2B%2B#L447)只接受 follow/manual。改为 **manual**，所有 3xx 仍在状态校验处拒绝，不跟随携带凭据的跳转。默认裸 fetch 调用、AbortSignal、请求头和 payload 在真实运行时均通过，不凭合成 receiver 测试增加无关绑定修改。
+- 修复通过 **23 项 Node 测试**及原生 workerd 完整 scheduled 路径 **6/6** 回归：204 接受；301/302/303/307/308 拒绝。globalOutbound 只路由纯本地 fixture，固定 GitHub 目标、一次 POST、输入 reset_history=false 均被校验，没有外网 dispatch 或真实凭据。修复已于约 **23:35** 发布，版本 **6af180d5-d3a4-4b10-bc24-b91e801cca7d**，上传 4.07 KiB / gzip 1.63 KiB，启动 2 ms；十分钟 Cron 不变，继续等待线上连续自动周期。
+- 原生运行时回归已保存在 `integrations/cloudflare-scheduler/runtime-tests/`，直接 embed 实际源码而非镜像实现，internet 服务 allow=[]，只使用本地 fixture 和明确占位符。固定官方命令 `npx --yes workerd@1.20261001.1 test integrations/cloudflare-scheduler/runtime-tests/config.capnp` **6/6 通过**，已接入 CI；更新后的工作流 actionlint 通过。
+- 修复后第一轮真实自动链路：Cloudflare **23:40:25** Cron → **23:40:28.807** GitHub 200 接受（2 ms CPU / 3047 ms wall time、1 请求、reset=false）→ [Actions 37489490941](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37489490941) **23:40:28** 创建，collect / deploy 全成功，**23:41:08** 完成。Pages 21 队、快照 **3→4**，最近完整观测 **23:40:46.713571**，原观测起点和零失败数保持；JSONL 4 行。自 **23:27** 打开并保持可见的真实 Pages 标签页未重载、未点击检查按钮，**23:41** DOM 自行变为 4 快照 / 23:40:46，已核验前端自动展示。第二轮连续周期仍待验证；记录在忽略目录 `auto-refresh/cron-acceptance/`。
+
 ## 自动刷新修复继续排查
 
 - 北京时间 **21:50:43** 对 monitor 执行一次禁用后启用，API 再次确认 active；21:57 检查仍无 schedule 记录。新 Actions execution policies 检查返回 0 条，未发现禁止 schedule 的策略。

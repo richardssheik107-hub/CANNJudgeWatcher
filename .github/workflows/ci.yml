@@ -34,6 +34,8 @@ jobs:
       - run: python -m compileall -q watcher
       - run: node --check web/app.js
       - run: node --test integrations/cloudflare-scheduler/worker.test.mjs
+      - name: Validate the scheduled handler in the native Workers runtime
+        run: npx --yes workerd@1.20261001.1 test integrations/cloudflare-scheduler/runtime-tests/config.capnp
   public-probe:
     if: github.event_name == 'workflow_dispatch' && inputs.live_probe
     runs-on: ubuntu-latest

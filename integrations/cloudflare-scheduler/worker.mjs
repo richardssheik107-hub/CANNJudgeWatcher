@@ -73,8 +73,9 @@ export async function dispatchMonitor(env, {
         'X-GitHub-Api-Version': '2026-03-10',
       },
       body: DISPATCH_BODY,
-      // A redirect must never forward the Authorization header elsewhere.
-      redirect: 'error',
+      // Workers supports manual/follow only. Never follow a redirect with credentials;
+      // every 3xx response is rejected below before a second request can be sent.
+      redirect: 'manual',
       signal: controller.signal,
     }));
     response = await Promise.race([request, deadline]);

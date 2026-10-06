@@ -73,7 +73,7 @@ for (const status of [200, 204]) {
     assert.equal(url, 'https://api.github.com/repos/richardssheik107-hub/CANNJudgeWatcher/actions/workflows/monitor.yml/dispatches');
     assert.equal(url, DISPATCH_URL);
     assert.equal(options.method, 'POST');
-    assert.equal(options.redirect, 'error');
+    assert.equal(options.redirect, 'manual');
     assert.ok(options.signal instanceof AbortSignal);
     assert.equal(options.signal.aborted, false);
     assert.deepEqual(options.headers, {
@@ -89,7 +89,7 @@ for (const status of [200, 204]) {
   });
 }
 
-for (const status of [401, 403, 404, 429, 500, 503]) {
+for (const status of [301, 302, 303, 307, 308, 401, 403, 404, 429, 500, 503]) {
   test('offline HTTP ' + status + ' fails once without retry or response disclosure', async () => {
     const transport = offlineTransport(unreadableResponse(status));
     const logs = [];
