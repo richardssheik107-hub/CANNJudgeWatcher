@@ -9,6 +9,8 @@
 - 这轮完整回归 **167 passed / 60.68s**，编译、前端语法、actionlint 与 diff 检查通过。Cloudflare 免费定时触发器在忽略目录准备，用户已选择注册免费账号；尚未创建令牌或部署外部服务，须在用户完成账号注册后继续。
 - Cloudflare 触发器经只读审查后纳入 `integrations/cloudflare-scheduler/`，**18 项离线 Node 测试**通过，并接入 CI。固定目标、禁止 reset、无公开 HTTP 入口、凭据及响应正文不进入日志；每次只请求一次，10 秒超时。Wrangler **4.147.0** 的真实 `deploy --dry-run` 成功，包 3.98 KiB / gzip 1.58 KiB，未进行云端部署或 GitHub dispatch。必需 Secret 已声明并核对官方配置支持；配置保持 workers_dev/preview_urls 关闭。
 - 已打开 Cloudflare 注册页并交由用户完成账号注册、协议、人机和邮箱验证；本机未发现可用 Cloudflare 登录配置。当前仍须登录及配置仅此仓库的 Actions 写权限专用令牌后，才能完成两轮真实自动触发与 Pages 验收。22:04 检查独立探针和原 monitor 仍无 schedule 记录，尚未将自动恢复标记成功。
+- Cloudflare 代码提交 `1b1f079` 的 [CI 37476055521](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37476055521) 已成功，覆盖原项目测试及新增 18 项触发器测试。**22:11:52** 再查，独立探针和原 monitor 仍为零 schedule；诊断探针随后停用并确认 disabled_manually，保留文件及日志，不再消耗无目的周期。原采集工作流保持 active；新源站补采仍使用 reset_history=false，不能算外部定时验收。
+- 临时补采 [37477109029](https://github.com/richardssheik107-hub/CANNJudgeWatcher/actions/runs/37477109029) 的 collect / deploy 均成功，网页与 JSONL 均为 **3 份**，首次仍 **21:17:09**，最近 **22:13:25**，21 支队伍；浏览器核验无页面错误。报告和实拍在 `data/github-validation/auto-refresh/latest-manual/`。这仍是维护时人工触发，Cloudflare 账号登录和专用 Secret 尚未接入，不能称为无人操作自动更新已解决。
 
 ## 定时更新未触发的排查
 
