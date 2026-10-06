@@ -4,7 +4,7 @@
 
 固定比赛是 [星辰杯决赛公开榜](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。程序使用 `config/monitor.starcup-final.json`：精确匹配 `ct_starcup_aiop_final`、`cookie_env` 为空、公开提交列表回补关闭。只读取公开榜单、题目元信息及完整赛事详情中的评分规则，不执行提交、登录或选手源码抓取。
 
-**当前交付状态：用户已确认全部公开，直接使用当前仓库。定时采集和 Pages 发布开关均为 true。** 首次云端部署阶段的 117 项本地与远端 CI、跨任务恢复、Pages 部署与网页访问均通过；当时快照由 21 → 22 → 23 → 24 → 25，旧历史完整保留，本机采集停止后云端仍成功新增并发布。当前基准修复已通过本地 150 项回归（41.29 秒）及代码 `81ddda7` 的远端 CI；修复后的 Pages 实际发布结果以 [验证记录](VALIDATION.md) 为准。计划任务可能延迟，连续 24 小时尚未验收。
+**当前交付状态：用户已确认全部公开，直接使用当前仓库。定时采集和 Pages 发布开关均为 true；手动云端采集、历史恢复与部署成功，自动触发尚未通过验收。** 2026-10-06 21:31（北京时间）检查发现全仓库 `event=schedule` 运行数量为 0，不能把已启用配置或手动成功视为自动更新已验证。已安排正常补采，并尝试一次 cron 分钟变更；必须以实际 schedule 运行和新增网页快照确认恢复，具体结果见 [验证记录](VALIDATION.md)。
 
 在线地址：[CANNJudgeWatcher 看板](https://richardssheik107-hub.github.io/CANNJudgeWatcher/)。无需本机开机或输入 CANN 账号密码。
 
@@ -78,7 +78,9 @@ GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Te
 
 ## 十分钟更新及失败行为
 
-工作流在每小时第 7、17、27、37、47、57 分钟计划运行，使用默认分支上的代码。GitHub 调度可能延迟，繁忙时甚至丢弃排队任务；公开仓库无活动 60 天会停用定时工作流。当前计划不能承诺严格每十分钟捕获一次成绩，更不能捕获源站每次瞬间变化。[官方定时规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+工作流在每小时第 3、13、23、33、43、53 分钟计划运行，使用默认分支上的代码。这次分钟变更用于尝试重新登记调度，不能单独证明自动触发已恢复。GitHub 调度可能延迟，繁忙时甚至丢弃排队任务；公开仓库无活动 60 天会停用定时工作流。当前计划不能承诺严格每十分钟捕获一次成绩，更不能捕获源站每次瞬间变化。[官方定时规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+
+排查时先查看 Actions 的触发事件：没有 `event=schedule` 的运行表示尚未进入采集作业；有运行但失败则检查 collect 的报告、源站状态与退避；collect 成功且网页未更新则检查 deploy。正常手动补采必须保持 `reset_history=false`，避免再次清空历史。仅有绿色手动运行不能关闭定时故障。
 
 每次 runner 都从远端状态恢复，运行最多一轮，然后结束。固定并发组避免两个工作流同时修改状态，SQLite 快照和页面导出也使用一致视图。页面每分钟重新读取已发布文件，只刷新展示；采集频率由 Actions 决定。
 
