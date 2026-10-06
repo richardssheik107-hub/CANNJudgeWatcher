@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from watcher.core import observation, scope_id, validate_snapshot
-from watcher.source import Client, collect_contest, matches
+from watcher.source import Client, collect_contest, matches, scoring_context
 from watcher.store import Store
 
 
@@ -95,3 +95,39 @@ def test_nested_testcase_and_rule_versions_isolate_scopes(public_schema):
     assert scope_id(initial['scope']) != scope_id(collect_public(changed)['scope'])
     cases = initial['payloads'][0]['metadata']['version']['testcases']
     assert cases[0] == {'_id': 'visible-case', 'type': 'default', 'baseline_id': None}
+
+
+RULE_TEXT = '''测试点得分公式：`得分 = 100 / (1 + log(你的用时 / 该测试点最优用时) / log(1.5))`
+最优用时：每个测试点在所有参赛者提交中的历史最快用时。
+题目得分：全部测试点得分的**平均值**（保留两位小数）。'''
+
+
+def test_scoring_rule_verification_does_not_assume_a_changed_formula():
+    contest = {'name': 'ct_starcup_aiop_final', 'scoring_rules_enabled': True,
+               'scoring_rule': 'default', 'scoring_rules_content': RULE_TEXT, 'visible_testcase_count': 10}
+    context = scoring_context(contest)
+    assert context['verified'] and context['visible_testcase_count'] == 10
+    assert context['rule_source'].endswith('/ct_starcup_aiop_final/scoring-rules')
+    changed = {**contest, 'scoring_rules_content': RULE_TEXT.replace('1.5', '2')}
+    assert not scoring_context(changed)['verified']
+    assert scoring_context(changed)['rule_digest'] != context['rule_digest']
+
+
+def test_full_contest_rule_is_collected_without_splitting_moving_baselines(public_schema):
+    schema = copy.deepcopy(public_schema)
+    full = {**schema['contests'][0], 'scoring_rules_enabled': True, 'scoring_rule': 'default',
+            'scoring_rules_content': RULE_TEXT, 'visible_testcase_count': 1}
+    routes = {'/api/contests/public-final': full, '/api/problems/public-problem': schema['problem'],
+              '/api/problems/public-problem/ranking': schema['ranking'],
+              '/api/submissions/contest/public-final/stats': schema['totals']}
+    config = {'request_gap_seconds': 0, 'cookie_env': '', 'verify_scoring_rules': True}
+    client = Client(config, transport=httpx.MockTransport(lambda r: httpx.Response(200, json=routes[r.url.path])))
+    try:
+        snap = validate_snapshot(collect_contest(client, schema['contests'][0], config))
+        assert snap['scoring_context']['verified']
+        assert snap['scoring_context']['rule_text'] == RULE_TEXT
+        prior_id = scope_id(snap['scope'])
+        schema['ranking']['testcases'] = [{'_id': 'visible-case', 'tbest': 1.2}]
+        assert scope_id(collect_contest(client, schema['contests'][0], config)['scope']) == prior_id
+    finally:
+        client.close()

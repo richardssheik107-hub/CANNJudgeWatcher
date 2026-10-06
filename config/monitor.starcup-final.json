@@ -7,6 +7,7 @@
   "page_size": 100,
   "max_ranking_pages": 20,
   "verify_first_page": true,
+  "verify_scoring_rules": true,
   "include_ended": true,
   "rule_epoch": "observed-source-score-v1",
   "problem_weights": {},

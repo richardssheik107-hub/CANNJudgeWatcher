@@ -152,8 +152,34 @@ def frozen(contest: dict, now: str | None = None) -> bool:
         return True
 
 
+def scoring_context(contest: dict) -> dict:
+    """Record the public rule, without assuming hidden timings are available."""
+    text = str(contest.get('scoring_rules_content') or '')
+    compact = re.sub(r'\s+', '', text)
+    verified = (contest.get('scoring_rules_enabled') is True
+                and contest.get('scoring_rule') == 'default'
+                and '100/(1+log(你的用时/该测试点最优用时)/log(1.5))' in compact
+                and '全部测试点得分的**平均值**（保留两位小数）' in compact
+                and '每个测试点在所有参赛者提交中的历史最快用时' in compact)
+    return {'rule': 'cann-default-time-log-v1', 'verified': verified,
+            'rule_source': ORIGIN + '/public/' + quote(str(contest.get('name') or ''), safe='') + '/scoring-rules',
+            'formula': '100/(1+log(time/TBest)/log(1.5))',
+            'rule_digest': digest(text), 'rule_text': text,
+            'problem_ids': sorted(str(p['problem_id']) for p in contest.get('problems', [])
+                                  if isinstance(p, dict) and p.get('problem_id')),
+            'visible_testcase_count': contest.get('visible_testcase_count')}
+
+
 def collect_contest(client: Client, contest: dict, config: dict) -> dict:
     start = utc(); cid = str(contest['_id'])
+    context = None
+    if config.get('verify_scoring_rules'):
+        full = client.get('/api/contests/' + quote(cid, safe=''))
+        if not isinstance(full, dict) or str(full.get('_id')) != cid or full.get('name') != contest.get('name'):
+            raise ContractError('scoring-rule contest identity mismatch')
+        # The detail endpoint includes the rule text; discovery omits it.
+        contest = full
+        context = scoring_context(contest)
     if frozen(contest):
         raise SourceError('contest is frozen; public snapshots remain unchanged')
     if contest.get('start_time') and utc(contest['start_time']) > start:
@@ -217,5 +243,8 @@ def collect_contest(client: Client, contest: dict, config: dict) -> dict:
     scope = {'contest_id': cid, 'title': title, 'stage': str(contest.get('name') or cid), 'group': group,
              'epoch': str(config.get('rule_epoch', 'observed-source-score-v1')),
              'problems': sorted(descriptors, key=lambda p: p['id']), 'demo': False}
-    return {'schema': 1, 'scope': scope, 'observed_at': utc(), 'collection_started_at': start,
-            'source': ORIGIN, 'observations': observations, 'totals': totals, 'payloads': payloads, 'notes': notes}
+    out = {'schema': 1, 'scope': scope, 'observed_at': utc(), 'collection_started_at': start,
+           'source': ORIGIN, 'observations': observations, 'totals': totals, 'payloads': payloads, 'notes': notes}
+    if context is not None:
+        out['scoring_context'] = context
+    return out

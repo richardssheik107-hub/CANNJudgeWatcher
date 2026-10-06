@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from .core import ContractError, competition_ranks, digest, dumps, scope_id, utc, validate_snapshot
+from .scoring import apply_current_basis
 
 class Store:
     def __init__(self, path: str):
@@ -113,6 +114,7 @@ class Store:
         for r in snap.get('totals', []):
             t = team(r['team_key'], r['name']); t.update(name=r['name'], present=True,
                                                        official_score=r['score'], official_rank=r['rank'])
+        basis = apply_current_basis(snap, teams, evidences)
         for t in teams.values():
             # A never-observed problem contributes nothing to the OBSERVED subtotal.
             # Unknown/missing current evidence is never silently assigned score 0.
@@ -125,15 +127,24 @@ class Store:
             t['gap'] = str(Decimal(t['peak_score']) - Decimal(t['official_score'])) if t['peak_score'] is not None and t['official_score'] is not None else None
             t['sum_mismatch'] = (t['current_sum'] is not None and t['official_score'] is not None
                                  and abs(Decimal(t['current_sum']) - Decimal(t['official_score'])) > Decimal('0.02'))
+            if basis is not None:
+                audit = t['observed_official_best']
+                t['observed_official_peak_score'] = str(sum((Decimal(audit[p['id']]['score']) * Decimal(str(p.get('weight', 1)))
+                                                           for p in tasks if p['id'] in audit), Decimal(0))) if audit else None
+                t['observed_official_best'] = list(audit.values())
             t['best'] = list(t['best'].values()); t['current'] = list(t['current'].values())
         rows = list(teams.values())
         competition_ranks(rows, 'peak_score', 'peak_rank')
         competition_ranks(rows, 'official_score', 'reference_rank')
         rows.sort(key=lambda r: (r['peak_rank'] is None, r['peak_rank'] or 0, r['team_key']))
-        return {'scope': scope, 'scope_id': sid, 'observed_at': snap['observed_at'], 'first_seen': coverage[0],
+        result = {'scope': scope, 'scope_id': sid, 'observed_at': snap['observed_at'], 'first_seen': coverage[0],
                 'snapshot_count': coverage[1], 'imported': bool(head['imported']), 'rows': rows,
                 'notes': snap.get('notes', []), 'semantics': 'sum_of_observed_problem_score_maxima',
                 'warning': '历史分数可能采用不同全场基准；合计榜不是官方最终榜、统一基准重评分榜或藏分判定。'}
+        if basis is not None:
+            result.update(score_basis=basis, semantics='current_baseline_confirmed_submission_maxima',
+                          warning='当前值仅覆盖本轮基准下可确认的完整提交；Hidden 或缺失数据不会被推测补齐。旧官方分数仅保留作审计。')
+        return result
 
     def history(self, sid: str, team_key: str, limit: int = 200, before: str | None = None) -> dict:
         limit = max(1, min(limit, 500))
