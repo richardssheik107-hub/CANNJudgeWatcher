@@ -72,7 +72,7 @@ GitHub Free 的 Pages 适用于公开仓库；私有仓库 Pages 需要 Pro、Te
 1. 把本轮代码及 `.github/workflows/monitor.yml` 放到默认分支，并完成上面的显式初始化。仓库须允许 Actions 使用工作流所声明的 `contents: write` 权限保存状态；授权来自 GitHub 提供的工作流令牌，无须保存 CANN 密码。
 2. 打开 `Actions → Starcup monitor → Run workflow`，选择默认分支。先保持 Pages 变量关闭，不配置外部 Cron。
 3. 查看运行摘要中的 `status`、`snapshot_count_before`、`snapshot_count_after` 和 `state_pushed`。完整采集应为 `SUCCESS`，新快照数增加；`state_pushed=true` 表示历史已保存，但不代表 Pages 已上线。
-4. 再手动运行一次。核对第二轮恢复了第一轮的快照、原首份观测时间及峰值证据。手动成功试运行会提供 `starcup-preview-运行ID` 预览 artifact，保留一天。
+4. 再手动运行一次。核对第二轮恢复了第一轮的快照、原首份观测时间及峰值证据。需要下载网页预览时，显式勾选 `save_preview`；它默认为 false，勾选后的成功试运行会提供 `starcup-preview-运行ID` artifact，保留一天。
 5. 确认公开范围及免费条件后，将仓库设为公开；在 `Settings → Pages → Build and deployment` 将发布来源设为 `GitHub Actions`，再开启 Pages 变量。
 6. 手动运行一次发布，打开 `deploy` 作业实际返回的 Pages 地址。核对完整榜单、队伍详情、原始成绩证据、CSV 和 JSONL 导出，以及项目子路径下的资源加载。按 [Cloudflare 触发器说明](../integrations/cloudflare-scheduler/README.md) 配置专用 Secret 和十分钟 Cron，随后核验至少两次真实计划任务持续恢复和增加历史。
 
@@ -115,6 +115,8 @@ Cloudflare `*/10 * * * *` 按 UTC 在每小时 0、10、20、30、40、50 分钟
 
 手动预览和 Pages 部署 artifact 均设置为保留 **一天**；数据库持久状态在 Git 分支，不依赖 artifact 或缓存存活。Pages 部署成功后，工作流只按上传步骤返回的**本次 artifact 精确 ID**删除本次 `github-pages` 部署归档，并再次核验归档名和所属运行 ID。它不批量清理其他运行、不删除预览 artifact，也不删除 `watcher-state` 或成绩记录；部署失败则保留归档至平台保留期到期。
 
-Cloudflare 自动触发使用的 event 也是 workflow_dispatch，因此当前每轮也会生成上述一天保留的预览。2026-10-07 00:16 检查本仓库 12 份 artifact 合计 **4,245,543 字节（约 4.05 MiB）**，均为预览；没有遗留 Pages 部署归档。最新预览单份 249,399 字节，按每天 144 份粗算约 34 MiB 的一天保留量，文件会随历史增长变大；这不是整个账户的存储或计费余额。
+2026-10-07 12:20 复核发现自动 dispatch 也走了原来的预览条件，79 份快照时已有 84 份预览、合计 **75,170,137 字节（约 71.69 MiB）**，最新单份约 1.59 MiB；相比 00:16 的 4.05 MiB 明显增长。已将预览改为显式 `save_preview` 开关，默认 false，Cloudflare 不传此开关，因此后续自动采集不生成重复预览。既有预览按一天保留期自然到期，真实成绩仍保存在状态分支。这个仓库的 artifact 文件大小不等于整个账户的计费余额。
+
+同次复核的活动数据库为 **2,285,568 字节（约 2.18 MiB）**、79 份快照，占 90 MiB 阈值约 **2.42%**。7→79 / 50→79 的增长速度约 24.7 / 21.6 KB 每快照，以每天 144 轮外推约 26–30 天触及阈值，比最初 7 份样本的增长更缓慢；仍不能保证期限。自动归档尚未实现，迁移规划应基于持续检查，而非固定倒计时。
 
 需要恢复时，先保存当前状态的独立备份并核验 SHA256 和 SQLite 完整性。不要将恢复操作伪装为首次初始化，不把演示库或人工导入库替换成正式云端状态。恢复方案应保证原证据可审计且不会丢失未迁出的历史。

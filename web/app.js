@@ -19,7 +19,11 @@ function submissionCoverage(row) {
 function basisExplanation(board) {
   const basis=board.score_basis;
   const hidden=Number(basis.total_testcase_count)-Number(basis.visible_testcase_count);
-  return (Number.isInteger(hidden) && hidden > 0 ? hidden+' 个计分测试点的耗时和基准未公开，部分历史提交无法重算。' : '只比较公开数据足以确认的完整提交，缺少重算条件的历史提交单独标注。')+'旧高分保留用于审计，不参与当前比较。当前可确认结果不代表未公开历史提交中的真实最高分。';
+  const rows=Array.isArray(board.rows) ? board.rows : [];
+  const officialOnly=currentBasis(board) && basis.formula_recomputation_enabled===false
+    && rows.some(row=>Number.isInteger(row.official_anchor_submissions) && row.official_anchor_submissions>0)
+    && rows.every(row=>row.formula_rescored_submissions===0);
+  return (officialOnly ? '当前仅采用本轮官方成绩；完整历史重算 0 条，真实历史最高分无法独立确认。当前分与可确认最高分相等，不证明真实历史最高分也相等。' : '')+(Number.isInteger(hidden) && hidden > 0 ? hidden+' 个计分测试点的耗时和基准未公开，部分历史提交无法重算。' : '只比较公开数据足以确认的完整提交，缺少重算条件的历史提交单独标注。')+'旧高分保留用于审计，不参与当前同基准比较。当前可确认结果不代表未公开历史提交中的真实最高分。';
 }
 function staticPath(path) {
   if(typeof path !== 'string' || !/^\.?\/?_data\/[A-Za-z0-9._/-]+$/.test(path) || path.split('/').includes('..')) throw new Error('静态快照路径无效，保留上一份显示。');

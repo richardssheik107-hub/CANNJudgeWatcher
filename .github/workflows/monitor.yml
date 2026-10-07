@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: false
+      save_preview:
+        description: 'Save a one-day preview artifact for an explicit manual trial'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,7 +79,7 @@ jobs:
               print('::warning::Source collection was incomplete; prior complete board retained. Inspect runs on the snapshot page.')
           PY
       - name: Save preview from a manual trial
-        if: github.event_name == 'workflow_dispatch' && steps.report.outputs.site_ready == 'true'
+        if: github.event_name == 'workflow_dispatch' && inputs.save_preview && steps.report.outputs.site_ready == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: starcup-preview-${{ github.run_id }}
