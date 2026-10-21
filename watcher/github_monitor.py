@@ -17,7 +17,7 @@ from urllib.parse import quote
 from .collector import poll
 from .core import ContractError, dumps, utc
 from .source import Client
-from .static_export import CONTEST_SLUG, ROOT, _collect, export_site
+from .static_export import CONTEST_SLUG, ROOT, _collect, _write_site
 from .store import Store
 
 STATE_BRANCH = 'watcher-state'
@@ -125,7 +125,7 @@ def _readonly_backup(source: Path, destination: Path):
         reader.close()
 
 
-def _validate_database(path, poll_seconds):
+def _checked_collection(path, poll_seconds):
     if path.stat().st_size >= MAX_DB_BYTES:
         raise ContractError('state database reached the 90 MiB safety limit; collection stopped before polling')
     reader = sqlite3.connect('file:' + quote(path.resolve().as_posix(), safe='/:') + '?mode=ro', uri=True)
@@ -135,7 +135,11 @@ def _validate_database(path, poll_seconds):
             raise ContractError('operator-imported observations cannot initialize or enter automated public state')
     finally:
         reader.close()
-    _, manifest, snapshot_count = _collect(path, poll_seconds)
+    return _collect(path, poll_seconds)
+
+
+def _validate_database(path, poll_seconds):
+    _, manifest, snapshot_count = _checked_collection(path, poll_seconds)
     return snapshot_count, len(manifest['boards'])
 
 
@@ -266,7 +270,11 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             deadline = None
         backup = work / 'starcup-final.sqlite3'
         store.backup(str(backup))
-        count, scope_count = _validate_database(backup, poll_seconds)
+        # Reuse this validated post-poll view for publication; do not render
+        # the same immutable backup a third time. Never reuse the pre-poll view.
+        collection = _checked_collection(backup, poll_seconds)
+        _, manifest, count = collection
+        scope_count = len(manifest['boards'])
         state = {
             'schema': 1, 'contest_slug': CONTEST_SLUG,
             'db_sha256': hashlib.sha256(backup.read_bytes()).hexdigest(),
@@ -281,7 +289,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         state_path.write_text(dumps(state) + '\n', encoding='utf-8')
         readme = work / 'README.md'
         readme.write_text(STATE_README, encoding='utf-8')
-        export_site(backup, site, poll_seconds=poll_seconds)
+        _write_site(collection, site)
         commit = _candidate(repository, backup, state_path, readme, parent)
         report.update(status=status, snapshot_count_after=count, scopes=scope_count,
                       state_changed=True, candidate_commit=commit, not_before=deadline,

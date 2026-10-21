@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from watcher.core import ContractError, scope_id
+from watcher.core import ContractError, dumps, observation, scope_id, total_row
 from watcher.source import Client, collect_contest
 from watcher.static_export import export_site, public_data
 from watcher.store import Store
@@ -265,3 +265,107 @@ def test_public_filter():
                         'nested': {'Authorization': 'secret', 'source_code': 'private'}}) == {
         'result': [{'testcase_status': 'Hidden', 'time': None}], 'score': '83.1', 'nested': {},
     }
+
+
+def test_cached_history_matches_store_bytes_without_per_team_reads(public_snapshot, tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from watcher import static_export
+
+    store = Store(str(tmp_path / 'history.sqlite3'))
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for index in range(205):
+        snapshot = copy.deepcopy(public_snapshot)
+        snapshot['scope']['problems'].append({'id': 'second-public-problem', 'title': 'second', 'weight': 1})
+        snapshot['observed_at'] = (start + timedelta(minutes=index)).isoformat(timespec='microseconds')
+        snapshot['observations'] = []
+        snapshot['totals'] = []
+        for team in ('one', 'two'):
+            raw = copy.deepcopy(public_snapshot['observations'][0]['raw'])
+            raw['team'] = {'_id': team, 'team_name': team}
+            if index % 5 == 0:
+                raw['score'] = None
+            if (index + len(team)) % 3:
+                snapshot['observations'].append(observation('public-problem', raw))
+            if index % 6:
+                snapshot['observations'].append(observation('second-public-problem', raw))
+            if (index + len(team)) % 4:
+                snapshot['totals'].append(total_row(raw))
+        store.ingest(snapshot, imported=index % 2 == 0)
+    other = copy.deepcopy(public_snapshot)
+    other['scope']['group'] = 'separate-scope'
+    store.ingest(other, imported=True)
+    expected = {}
+    for scope in store.scopes():
+        sid = scope['id']
+        for row in store.board(sid)['rows']:
+            history = store.history(sid, row['team_key'], limit=200)
+            history.update(total_points=scope['snapshot_count'], full_export='_data/snapshots.jsonl')
+            expected[sid, row['team_key']] = (dumps(public_data(history)) + '\n').encode('utf-8')
+
+    original_decompress = static_export.zlib.decompress
+    decompressions = []
+
+    def counted_decompress(data):
+        decompressions.append(len(data))
+        return original_decompress(data)
+
+    def no_history_reads(*args, **kwargs):
+        raise AssertionError('validated snapshot history must not be queried or decompressed again')
+
+    monkeypatch.setattr(static_export.zlib, 'decompress', counted_decompress)
+    monkeypatch.setattr(static_export._ReadOnlyStore, 'history', no_history_reads)
+    before = Path(store.path).read_bytes()
+    files, manifest, count = static_export._collect(Path(store.path), 600)
+    assert count == 206
+    # One decode per validated snapshot, plus Store.board's latest snapshot per scope.
+    assert len(decompressions) == count + len(manifest['boards'])
+    for (sid, key), history_bytes in expected.items():
+        assert files[manifest['history'][sid][key]] == history_bytes
+    assert Path(store.path).read_bytes() == before
+
+
+@pytest.mark.parametrize('count', [199, 200, 201])
+def test_cached_history_cursor_boundary(public_snapshot, tmp_path, count):
+    from datetime import datetime, timedelta, timezone
+    from watcher.static_export import _collect
+
+    store = Store(str(tmp_path / 'boundary.sqlite3'))
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for index in range(count):
+        snapshot = copy.deepcopy(public_snapshot)
+        snapshot['observed_at'] = (start + timedelta(minutes=index)).isoformat(timespec='microseconds')
+        store.ingest(snapshot, imported=index % 2 == 0)
+    sid = scope_id(public_snapshot['scope'])
+    expected = store.history(sid, 'team:public-team', limit=200)
+    files, manifest, _ = _collect(Path(store.path), 600)
+    history = json.loads(files[manifest['history'][sid]['team:public-team']])
+    assert history['points'] == expected['points']
+    assert history['next_before'] == expected['next_before']
+    assert len(history['points']) == min(count, 200)
+
+
+def test_write_prepared_collection_reuses_exact_validated_files(public_snapshot, tmp_path, monkeypatch):
+    from watcher import static_export
+
+    database = tmp_path / 'live.sqlite3'
+    make_store(database, public_snapshot)
+    collection = static_export._collect(database, 600)
+    original_files = dict(collection[0])
+    manifest = collection[1]
+
+    def no_recollection(*args, **kwargs):
+        raise AssertionError('writing a prepared collection must not read the database again')
+
+    monkeypatch.setattr(static_export, '_collect', no_recollection)
+    site = tmp_path / 'prepared-site'
+    result = static_export._write_site(collection, site)
+    assert result['snapshots'] == 1 and result['generated_at'] == manifest['generated_at']
+    assert collection[0] == original_files
+    for path, content in original_files.items():
+        assert (site / path).read_bytes() == content
+    assert 'data-mode="static"' in (site / 'index.html').read_text(encoding='utf-8')
+    assert (site / 'static' / 'app.js').is_file()
+    assert (site / 'static' / 'style.css').is_file()
+    assert (site / '.nojekyll').read_bytes() == b''
+    with pytest.raises(ContractError, match='must not exist'):
+        static_export._write_site(collection, site)
