@@ -477,3 +477,35 @@ def test_epoch_metadata():
     state['updated_at'] = '2026-01-01T01:00:00.000000+00:00'
     with pytest.raises(ContractError, match='observation epoch'):
         monitor._metadata(state)
+
+
+def test_reset_replaced_problem_then_append_keeps_current_basis(setup, monkeypatch):
+    """Resetting alone must not let the next TBest change reintroduce old peaks."""
+    from test_scoring_dynamic import single
+
+    initial = initialize(setup)
+    previous = git(setup['repo'], 'show', initial['candidate_commit'] + ':starcup-final.sqlite3')
+    install_source(monkeypatch)
+    generation = iter([single(1, score='70', hidden=True), single(2, score='40', hidden=True)])
+
+    def collect(store, client, config):
+        snapshot = next(generation)
+        snapshot['source'] = 'https://cannjudge.cn'
+        sid = store.ingest(snapshot)
+        return {'status': 'SUCCESS', 'published': [{'snapshot_id': sid}]}
+
+    monkeypatch.setattr(monitor, 'poll', collect)
+    reset = round_at(setup, 'dynamic-reset', reset_history=True, push_state=True)
+    assert reset['snapshot_count_after'] == 1 and reset['state_pushed']
+    assert (setup['root'] / 'dynamic-reset' / 'restored.sqlite3').read_bytes() == previous
+    continued = round_at(setup, 'dynamic-append', push_state=True)
+    assert continued['snapshot_count_before'] == 1 and continued['snapshot_count_after'] == 2
+    store = Store(str(setup['root'] / 'dynamic-append' / 'starcup-final.sqlite3'))
+    scope, = store.scopes()
+    board = store.board(scope['id'])
+    row, = board['rows']
+    assert row['official_score'] == row['peak_score'] == '40'
+    assert row['observed_official_peak_score'] == '70'
+    assert board['semantics'] == 'current_baseline_confirmed_submission_maxima'
+    assert len(list(store.export())) == 2
+    assert git(setup['origin'], 'show', initial['candidate_commit'] + ':starcup-final.sqlite3') == previous
