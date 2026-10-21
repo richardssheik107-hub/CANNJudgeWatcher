@@ -5,9 +5,11 @@ import json
 import pytest
 
 from watcher.core import observation, scope_id, total_row
-from watcher.scoring import CONTEST_ID, CONTEST_SLUG, FORMULA, PROBLEM_ID, RULE, RULE_SOURCE
+from watcher.scoring import CONTEST_ID, CONTEST_SLUG, FORMULA, RULE, RULE_SOURCE
 from watcher.store import Store
 
+
+PROBLEM_ID = '6abcb4fd694b590c3c315c0e'
 
 def make_snapshot(index, score='70', submission='s1', times=None, hidden=False, status='Pass'):
     times = times or ([2] * 10 + [None] * 5 if hidden else [1, 2.25])
@@ -213,7 +215,7 @@ def test_read_only_scores(store):
     assert json.loads(original_export.splitlines()[0])['observations'][0]['score'] == '90'
 
 
-@pytest.mark.parametrize('mode', ['demo', 'contest', 'stage', 'problem'])
+@pytest.mark.parametrize('mode', ['demo', 'contest', 'stage'])
 def test_other_scopes_unchanged(store, mode):
     old = make_snapshot(1, '90', hidden=True)
     new = make_snapshot(2, '70', hidden=True)
@@ -224,9 +226,6 @@ def test_other_scopes_unchanged(store, mode):
             snapshot['scope']['contest_id'] = 'another-contest'
         elif mode == 'stage':
             snapshot['scope']['stage'] = 'another-stage'
-        else:
-            snapshot['scope']['problems'][0]['id'] = 'other-problem'
-            snapshot['observations'][0]['problem_id'] = 'other-problem'
     out = board(store, old, new)
     assert out['rows'][0]['peak_score'] == '90' and out['rows'][0]['gap'] == '20'
     assert 'score_basis' not in out and 'observed_official_peak_score' not in out['rows'][0]

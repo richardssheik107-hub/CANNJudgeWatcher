@@ -11,7 +11,6 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 from .core import PASS, digest, scope_id
 
 CONTEST_ID = '6abcb2fa694b590c3c300a2e'
-PROBLEM_ID = '6abcb4fd694b590c3c315c0e'
 CONTEST_SLUG = 'ct_starcup_aiop_final'
 RULE = 'cann-default-time-log-v1'
 FORMULA = '100/(1+log(time/TBest)/log(1.5))'
@@ -28,7 +27,7 @@ def _positive(value):
         return None
 
 
-def _testcases(snapshot):
+def _testcases(snapshot, problem_id):
     ranking_lists, metadata = [], []
     payloads = snapshot.get('payloads', [])
     if not isinstance(payloads, list):
@@ -36,7 +35,7 @@ def _testcases(snapshot):
     for payload in payloads:
         if not isinstance(payload, dict):
             return {}, False
-        if payload.get('problem_id') != PROBLEM_ID:
+        if payload.get('problem_id') != problem_id:
             continue
         problem_metadata = payload.get('metadata')
         version = problem_metadata.get('version') if isinstance(problem_metadata, dict) else None
@@ -94,8 +93,8 @@ def _performance(row):
 def _candidate_key(row, evidence_id):
     performance = _performance(row)
     if row.get('submission_id') and performance is not None:
-        return (row['team_key'], row['submission_id'], digest(performance))
-    return (row['team_key'], 'unidentified', evidence_id)
+        return (row['problem_id'], row['team_key'], row['submission_id'], digest(performance))
+    return (row['problem_id'], row['team_key'], 'unidentified', evidence_id)
 
 
 def _complete(row, cases, metadata_consistent):
@@ -131,18 +130,16 @@ def _recompute(row, cases):
         return str((sum(scores) / Decimal(len(scores))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
 
-def apply_current_basis(snapshot, teams, evidences):
-    """Replace primary peaks for this contest only; retain old official peaks for audit."""
+def _apply_problem_basis(snapshot, teams, evidences, problem_id):
+    """Evaluate one problem without mixing testcase sets or score calibrations."""
     scope = snapshot['scope']
-    if (scope.get('demo') is not False or scope.get('contest_id') != CONTEST_ID
-            or scope.get('stage') != CONTEST_SLUG
-            or {p['id'] for p in scope['problems']} != {PROBLEM_ID}):
-        return None
-    cases, consistent = _testcases(snapshot)
+    cases, consistent = _testcases(snapshot, problem_id)
     context = snapshot.get('scoring_context', {})
     verified = (isinstance(context, dict) and context.get('verified') is True
                 and context.get('rule') == RULE and context.get('formula') == FORMULA
-                and context.get('problem_ids') == [PROBLEM_ID])
+                and isinstance(context.get('problem_ids'), list)
+                and all(isinstance(pid, str) for pid in context['problem_ids'])
+                and sorted(context['problem_ids']) == sorted(p['id'] for p in scope['problems']))
     visible = sum(c.get('hidden') is not True for c in cases.values())
     baseline_complete = (consistent and all(c.get('hidden') is not True and c.get('type') == 'default'
                                            and _positive(c.get('tbest')) is not None for c in cases.values()))
@@ -154,10 +151,19 @@ def apply_current_basis(snapshot, teams, evidences):
     if not verified:
         reasons.append('当前快照未核验官方评分规则，未对旧提交套用公式。')
 
-    by_team, evidence_by_id = {}, {}
+    by_team, evidence_by_id, latest_submissions = {}, {}, {}
     for evidence in sorted(evidences, key=lambda e: (e['first_seen'], e['id'])):
         row = json.loads(evidence['data'])
         evidence_by_id[evidence['id']] = evidence
+        if row.get('problem_id') != problem_id:
+            continue
+        if row.get('submission_id'):
+            identity = (row['problem_id'], row['team_key'], row['submission_id'])
+            latest = latest_submissions.get(identity)
+            # Evidence is deduplicated: an old row may have been observed again
+            # after a failure, so first_seen cannot decide its current validity.
+            if latest is None or evidence['last_seen'] > latest[0]:
+                latest_submissions[identity] = (evidence['last_seen'], row.get('eligible') is True)
         if row.get('eligible') is not True:
             continue
         key = _candidate_key(row, evidence['id'])
@@ -165,7 +171,7 @@ def apply_current_basis(snapshot, teams, evidences):
 
     anchors = {}
     for row in snapshot['observations']:
-        if row['problem_id'] == PROBLEM_ID and _complete(row, cases, consistent):
+        if row['problem_id'] == problem_id and _complete(row, cases, consistent):
             eid = digest({'scope': scope_id(scope), 'row': row})
             evidence = evidence_by_id.get(eid)
             if evidence is not None:
@@ -182,7 +188,6 @@ def apply_current_basis(snapshot, teams, evidences):
 
     any_confirmed, any_missing = False, False
     for team in teams.values():
-        team['observed_official_best'] = dict(team['best'])
         team['best'] = {}
         candidates = by_team.get(team['team_key'], {})
         confirmed, anchor_count, local_count = 0, 0, 0
@@ -194,6 +199,14 @@ def apply_current_basis(snapshot, teams, evidences):
                 score, kind = row['score'], 'official-current'
                 anchor_count += 1
             elif can_recompute and _complete(row, cases, consistent):
+                identity = (row['problem_id'], row['team_key'], row['submission_id'])
+                if not latest_submissions[identity][1]:
+                    # Keep the former Pass as audit/unavailable evidence, but do
+                    # not turn a subsequently invalidated submission into a peak.
+                    reason = '部分历史提交的最新观测已失去有效成绩资格，旧通过版本不参与公式重算。'
+                    if reason not in row_reasons:
+                        row_reasons.append(reason)
+                    continue
                 score, kind = _recompute(row, cases), 'recomputed-current'
                 if score is None:
                     continue
@@ -205,9 +218,9 @@ def apply_current_basis(snapshot, teams, evidences):
                        'evidence_id': evidence['id'], 'observed_at': evidence['first_seen'],
                        'score_basis_kind': kind, 'score_basis_as_of': snapshot['observed_at'],
                        'score_basis_source': RULE_SOURCE}
-            old = team['best'].get(PROBLEM_ID)
+            old = team['best'].get(problem_id)
             if old is None or Decimal(score) > Decimal(old['score']):
-                team['best'][PROBLEM_ID] = derived
+                team['best'][problem_id] = derived
         missing = len(candidates) - confirmed
         if missing:
             row_reasons.extend(reasons)
@@ -230,3 +243,60 @@ def apply_current_basis(snapshot, teams, evidences):
             'baseline_complete': baseline_complete,
             'formula_recomputation_enabled': can_recompute, 'visible_testcase_count': visible,
             'total_testcase_count': len(cases), 'reasons': reasons}
+
+
+def apply_current_basis(snapshot, teams, evidences):
+    """Use the current problem list, never a remembered problem ID, as the boundary.
+
+    A problem replacement must not silently fall back to cross-baseline maxima.
+    Each problem has its own testcase metadata, calibration and best whole
+    submission; only their derived scores and coverage counts are aggregated.
+    """
+    scope = snapshot['scope']
+    if (scope.get('demo') is not False or scope.get('contest_id') != CONTEST_ID
+            or scope.get('stage') != CONTEST_SLUG):
+        return None
+    counters = ('historical_submissions', 'rescored_submissions', 'unavailable_submissions',
+                'official_anchor_submissions', 'formula_rescored_submissions')
+    for team in teams.values():
+        team['observed_official_best'] = dict(team['best'])
+        team['best'] = {}
+        team['reasons'] = []
+        for key in counters:
+            team[key] = 0
+    problems = []
+    multiple = len(scope['problems']) > 1
+    for problem in scope['problems']:
+        pid = problem['id']
+        local_teams = {key: {'team_key': key, 'best': {}} for key in teams}
+        basis = _apply_problem_basis(snapshot, local_teams, evidences, pid)
+        problems.append({'problem_id': pid, **basis})
+        for key, local in local_teams.items():
+            target = teams[key]
+            target['best'].update(local['best'])
+            for counter in counters:
+                target[counter] += local[counter]
+            prefix = str(problem.get('title') or pid) + '：' if multiple else ''
+            target['reasons'].extend(prefix + reason for reason in local['reasons'])
+    for team in teams.values():
+        team['peak_status'] = ('unavailable' if not team['rescored_submissions'] else
+                               'partial' if team['unavailable_submissions'] or
+                               len(team['best']) < len(scope['problems']) else 'complete')
+    # Keep the original top-level shape for clients and expose per-problem
+    # details so a mixed public/hidden contest does not imply a shared TBest.
+    result = dict(problems[0])
+    result.pop('problem_id')
+    result.update(
+        problems=problems,
+        status=('unavailable' if not any(t['rescored_submissions'] for t in teams.values()) else
+                'partial' if any(t['unavailable_submissions'] or
+                                 (t['rescored_submissions'] and len(t['best']) < len(scope['problems']))
+                                 for t in teams.values()) else 'complete'),
+        formula_verified=all(p['formula_verified'] for p in problems),
+        baseline_complete=all(p['baseline_complete'] for p in problems),
+        formula_recomputation_enabled=any(p['formula_recomputation_enabled'] for p in problems),
+        visible_testcase_count=sum(p['visible_testcase_count'] for p in problems),
+        total_testcase_count=sum(p['total_testcase_count'] for p in problems),
+        reasons=list(dict.fromkeys(reason for p in problems for reason in p['reasons'])),
+    )
+    return result
