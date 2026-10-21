@@ -509,3 +509,29 @@ def test_reset_replaced_problem_then_append_keeps_current_basis(setup, monkeypat
     assert board['semantics'] == 'current_baseline_confirmed_submission_maxima'
     assert len(list(store.export())) == 2
     assert git(setup['origin'], 'show', initial['candidate_commit'] + ':starcup-final.sqlite3') == previous
+
+
+@pytest.mark.parametrize('reset', [False, True])
+def test_publish_reuses_only_the_validated_post_poll_collection(setup, monkeypatch, reset):
+    initialize(setup)
+    install_source(monkeypatch, score=65)
+    original = monitor._collect
+    collections = []
+
+    def counted_collection(path, interval):
+        result = original(path, interval)
+        collections.append((path.name, result[2]))
+        return result
+
+    monkeypatch.setattr(monitor, '_collect', counted_collection)
+    result = round_at(setup, 'reuse', push_state=True, reset_history=reset)
+    expected_count = 1 if reset else 2
+    assert collections == [('live.sqlite3', 1), ('starcup-final.sqlite3', expected_count)]
+    assert result['snapshot_count_after'] == expected_count and result['site_ready']
+    site = setup['root'] / 'sreuse'
+    manifest = json.loads((site / '_data' / 'manifest.json').read_text())
+    board = json.loads((site / next(iter(manifest['boards'].values()))).read_text())
+    row, = board['rows']
+    assert row['official_score'] == '65'
+    assert board['snapshot_count'] == expected_count
+    assert len((site / manifest['export']).read_text().splitlines()) == expected_count

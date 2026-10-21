@@ -94,6 +94,7 @@ def _collect(db_path: Path, poll_seconds: int):
             by_scope[sid] = scope
 
         snapshots = []
+        snapshots_by_scope = {sid: [] for sid in by_scope}
         expected_evidence = {}
         for row in connection.execute('SELECT * FROM snapshots ORDER BY observed_at,id'):
             snapshot = validate_snapshot(json.loads(zlib.decompress(row['data'])))
@@ -104,6 +105,7 @@ def _collect(db_path: Path, poll_seconds: int):
                     or snapshot['scope'].get('stage') != CONTEST_SLUG):
                 raise ContractError('invalid or unrelated stored snapshot; nothing was published')
             snapshots.append(snapshot)
+            snapshots_by_scope[sid].append((snapshot, bool(row['imported'])))
             for record in snapshot['observations']:
                 eid = digest({'scope': sid, 'row': record})
                 expected = expected_evidence.setdefault(eid, {
@@ -156,12 +158,29 @@ def _collect(db_path: Path, poll_seconds: int):
             _json_file(files, path, board)
             manifest['history'][sid] = {}
             manifest['archives'][sid] = {}
+            # Reuse the exact snapshots already validated in this transaction.
+            # Store.history would otherwise decompress the same 201 snapshots
+            # again for every team. Keep its ordering, absence and cursor rules.
+            scoped_snapshots = snapshots_by_scope[sid]
+            recent = []
+            for snapshot, imported in reversed(scoped_snapshots[-200:]):
+                totals = {row['team_key']: row for row in snapshot.get('totals', [])}
+                observations = {}
+                for row in snapshot['observations']:
+                    observations.setdefault(row['team_key'], []).append(row)
+                recent.append((snapshot['observed_at'], imported, totals, observations))
+            next_before = recent[-1][0] if len(scoped_snapshots) > 200 else None
             for team in board['rows']:
                 key = team['team_key']
                 team_hash = hashlib.sha256(key.encode('utf-8')).hexdigest()
                 path = f'_data/history/{sid}/{team_hash}.json'
                 manifest['history'][sid][key] = path
-                history = store.history(sid, key, limit=200)
+                history = {
+                    'points': [{'observed_at': at, 'imported': imported,
+                                'total': totals.get(key), 'problems': observations.get(key, [])}
+                               for at, imported, totals, observations in recent],
+                    'next_before': next_before,
+                }
                 history.update(total_points=scope['snapshot_count'], full_export=manifest['export'])
                 _json_file(files, path, history)
                 archived = archive_rows(store, sid, key, limit=500)
@@ -184,16 +203,13 @@ def _collect(db_path: Path, poll_seconds: int):
         connection.close()
 
 
-def export_site(db_path: str | Path, output: str | Path, *, poll_seconds: int = 600,
-                web_dir: str | Path | None = None) -> dict:
-    """Export only to a new destination, publishing it after every read succeeds."""
-    if isinstance(poll_seconds, bool) or not isinstance(poll_seconds, int) or poll_seconds < 300:
-        raise ContractError('scheduled poll_seconds must be an integer of at least 300')
+def _write_site(collection, output: str | Path, *, web_dir: str | Path | None = None) -> dict:
+    """Write one already validated collection without reopening its database."""
     destination = Path(output).resolve()
     if destination.exists() or destination.is_symlink():
         raise ContractError('destination must not exist; old exports are never overwritten or deleted')
-    source = Path(db_path).resolve()
-    files, manifest, snapshot_count = _collect(source, poll_seconds)
+    files, manifest, snapshot_count = collection
+    files = dict(files)
     assets = Path(web_dir) if web_dir is not None else ROOT / 'web'
     index = (assets / 'index.html').read_text(encoding='utf-8')
     marker = '<html lang="zh-CN">'
@@ -217,6 +233,18 @@ def export_site(db_path: str | Path, output: str | Path, *, poll_seconds: int = 
     staging.rename(destination)
     return {'output': str(destination), 'files': len(files), 'scopes': len(manifest['boards']),
             'snapshots': snapshot_count, 'generated_at': manifest['generated_at']}
+
+
+def export_site(db_path: str | Path, output: str | Path, *, poll_seconds: int = 600,
+                web_dir: str | Path | None = None) -> dict:
+    """Export only to a new destination, publishing it after every read succeeds."""
+    if isinstance(poll_seconds, bool) or not isinstance(poll_seconds, int) or poll_seconds < 300:
+        raise ContractError('scheduled poll_seconds must be an integer of at least 300')
+    destination = Path(output).resolve()
+    if destination.exists() or destination.is_symlink():
+        raise ContractError('destination must not exist; old exports are never overwritten or deleted')
+    source = Path(db_path).resolve()
+    return _write_site(_collect(source, poll_seconds), destination, web_dir=web_dir)
 
 
 def main():
