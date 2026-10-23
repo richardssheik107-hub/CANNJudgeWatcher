@@ -55,6 +55,10 @@ jobs:
           args=(--work-dir "$WORK_DIR" --site-output "$SITE_DIR" --poll-seconds 600 --push-state)
           if [ "$RESET_HISTORY" = 'true' ]; then
             args+=(--reset-history)
+          else
+            # Explicitly approved one-shot request, bound to an archived state.
+            # The successful state commit consumes it; later runs only append.
+            args+=(--reset-request config/history-reset-20261023.json)
           fi
           python -m watcher.github_monitor "${args[@]}"
       - name: Summarize result and decide publication

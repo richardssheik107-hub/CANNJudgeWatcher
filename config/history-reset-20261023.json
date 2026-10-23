@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "request_id": "restart-current-tbest-20261023",
+  "expected_state_commit": "5c3018eb12359744a84392954ad70752b51353e5",
+  "expected_db_sha256": "5a89e0d6cdf6e818c1fcabd103f0dbbda5fb733d9992727ab36734f4e521f063",
+  "expected_db_bytes": 94367744,
+  "expected_snapshot_count": 2020,
+  "archive_ref": "refs/heads/archive/pre-reset-20261023-5c3018eb",
+  "expires_at": "2026-10-24T05:00:00.000000+00:00"
+}

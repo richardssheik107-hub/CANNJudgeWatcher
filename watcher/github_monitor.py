@@ -83,6 +83,57 @@ def _configuration(path):
     return config
 
 
+def _reset_request_fields(raw):
+    required = {'schema', 'request_id', 'expected_state_commit', 'expected_db_sha256', 'archive_ref'}
+    optional = {'expected_db_bytes', 'expected_snapshot_count', 'expires_at'}
+    if (not isinstance(raw, dict) or not required <= set(raw)
+            or set(raw) - required - optional or type(raw.get('schema')) is not int or raw['schema'] != 1
+            or not isinstance(raw.get('request_id'), str)
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', raw['request_id'])
+            or not isinstance(raw.get('expected_state_commit'), str)
+            or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', raw['expected_state_commit'])
+            or not isinstance(raw.get('expected_db_sha256'), str)
+            or not re.fullmatch(r'[0-9a-f]{64}', raw['expected_db_sha256'])
+            or not isinstance(raw.get('archive_ref'), str)
+            or not re.fullmatch(r'refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/-]*', raw['archive_ref'])
+            or any(part in ('', '.', '..') or part.endswith('.lock')
+                   for part in raw['archive_ref'].split('/'))
+            or '..' in raw['archive_ref'] or raw['archive_ref'].endswith('.')
+            or raw['archive_ref'] == STATE_REF):
+        raise ContractError('invalid one-shot reset request')
+    for field in ('expected_db_bytes', 'expected_snapshot_count'):
+        if field in raw and (type(raw[field]) is not int or raw[field] <= 0):
+            raise ContractError('invalid one-shot reset request ' + field)
+    out = dict(raw)
+    if 'expires_at' in out:
+        if not isinstance(out['expires_at'], str):
+            raise ContractError('invalid one-shot reset request expiry')
+        out['expires_at'] = utc(out['expires_at'])
+    return out
+
+
+def _load_reset_request(path):
+    if path is None:
+        return None
+    with Path(path).open('rb') as stream:
+        content = stream.read(16 * 1024 + 1)
+    if len(content) > 16 * 1024:
+        raise ContractError('one-shot reset request exceeds the size limit')
+    try:
+        return _reset_request_fields(json.loads(content))
+    except (ValueError, UnicodeError) as error:
+        if isinstance(error, ContractError):
+            raise
+        raise ContractError('invalid one-shot reset request JSON') from error
+
+
+def _verify_reset_archive(repo, request):
+    output = _git(repo, ['ls-remote', '--refs', 'origin', request['archive_ref']]).decode('ascii').strip()
+    lines = output.splitlines()
+    if len(lines) != 1 or lines[0].split() != [request['expected_state_commit'], request['archive_ref']]:
+        raise ContractError('reset archive ref does not match the expected immutable state commit')
+
+
 def _metadata(raw, *, now=None):
     if (not isinstance(raw, dict) or type(raw.get('schema')) is not int or raw.get('schema') != 1
             or raw.get('contest_slug') != CONTEST_SLUG or 'not_before' not in raw
@@ -105,6 +156,15 @@ def _metadata(raw, *, now=None):
                 raise ValueError('observation epoch exceeds its state update')
         except (ContractError, ValueError) as error:
             raise ContractError('persisted observation epoch timestamp is invalid or in the future') from error
+    if 'last_completed_reset' in raw:
+        receipt = raw['last_completed_reset']
+        if not isinstance(receipt, dict) or not isinstance(receipt.get('completed_at'), str):
+            raise ContractError('invalid completed reset receipt')
+        _reset_request_fields({key: value for key, value in receipt.items() if key != 'completed_at'})
+        completed = utc(receipt['completed_at'])
+        if (completed != receipt['completed_at'] or completed > utc(now)
+                or ('updated_at' in raw and completed > utc(raw['updated_at']))):
+            raise ContractError('invalid completed reset receipt timestamp')
     return raw
 
 
@@ -127,7 +187,7 @@ def _readonly_backup(source: Path, destination: Path):
 
 def _checked_collection(path, poll_seconds):
     if path.stat().st_size >= MAX_DB_BYTES:
-        raise ContractError('state database reached the 90 MiB safety limit; collection stopped before polling')
+        raise ContractError('state database reached the 90 MiB safety limit')
     reader = sqlite3.connect('file:' + quote(path.resolve().as_posix(), safe='/:') + '?mode=ro', uri=True)
     try:
         reader.execute('PRAGMA query_only=ON')
@@ -161,7 +221,7 @@ def _candidate(repo, database, metadata_path, readme_path, parent):
 
 
 def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
-                  initialize=False, seed=None, reset_history=False,
+                  initialize=False, seed=None, reset_history=False, reset_request=None,
                   repo=None, config_path=None, now=None) -> dict:
     """Prepare one round; publish readiness is granted only after state push succeeds.
 
@@ -184,10 +244,13 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         raise ContractError('reset_history must be a boolean')
     if reset_history and (initialize or seed is not None):
         raise ContractError('history reset cannot be combined with initialization or a seed database')
+    if reset_request is not None and (reset_history or initialize or seed is not None):
+        raise ContractError('one-shot reset request cannot be combined with manual reset, initialization or a seed database')
     if bool(initialize) != bool(seed):
         raise ContractError('initialization requires both --initialize and an explicit --seed database')
     repository = Path(repo).resolve() if repo else ROOT
     config = _configuration(config_path or ROOT / 'config' / 'monitor.starcup-final.json')
+    request = _load_reset_request(reset_request)
     current = utc(now) if now is not None else utc()
     work.mkdir(parents=True)
     report = {
@@ -195,6 +258,9 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         'site_ready': False, 'state_changed': False, 'candidate_commit': None,
         'state_pushed': False, 'not_before': None, 'reset_history': reset_history,
         'reset_started_at': current if reset_history else None,
+        'phase': 'restoring_state',
+        'reset_request_id': request['request_id'] if request else None,
+        'reset_request_status': 'pending' if request else None,
     }
 
     def record():
@@ -215,9 +281,29 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             if len(raw_meta) > 64 * 1024:
                 raise ContractError('persisted metadata exceeds the safety limit')
             metadata = _metadata(json.loads(raw_meta.decode('utf-8')), now=current)
+            if request is not None:
+                report['phase'] = 'validating_reset_request'
+                receipt = metadata.get('last_completed_reset')
+                if receipt and receipt['request_id'] == request['request_id']:
+                    binding = {key: value for key, value in receipt.items() if key != 'completed_at'}
+                    if binding != request:
+                        raise ContractError('completed reset request ID has conflicting bindings')
+                    report['reset_request_status'] = 'already-completed'
+                else:
+                    if request.get('expires_at') and current >= request['expires_at']:
+                        raise ContractError('one-shot reset request has expired')
+                    if (parent != request['expected_state_commit']
+                            or metadata['db_sha256'] != request['expected_db_sha256']):
+                        raise ContractError('one-shot reset request has stale state commit or database hash')
+                    _verify_reset_archive(repository, request)
+                    reset_history = True
+                    report.update(reset_history=True, reset_started_at=current)
+            report['phase'] = 'restoring_state'
             size = int(_git(repository, ['cat-file', '-s', parent + ':starcup-final.sqlite3']).decode('ascii').strip())
             if size >= MAX_DB_BYTES:
-                raise ContractError('state database reached the 90 MiB safety limit; collection stopped before polling')
+                raise ContractError('state database reached the 90 MiB safety limit')
+            if request is not None and reset_history and request.get('expected_db_bytes', size) != size:
+                raise ContractError('reset request database byte count does not match the archived state')
             restored = _git(repository, ['show', parent + ':starcup-final.sqlite3'])
             if hashlib.sha256(restored).hexdigest() != metadata['db_sha256']:
                 raise ContractError('persisted database SHA256 mismatch; previous state was not changed')
@@ -226,14 +312,23 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
                 stream.write(restored)
             _readonly_backup(restored_path, live)
 
+        report['phase'] = 'validating_restored'
         count, scope_count = _validate_database(live, poll_seconds)
+        if request is not None and reset_history:
+            if request.get('expected_snapshot_count', count) != count:
+                raise ContractError('reset request snapshot count does not match the archived state')
+            # Recheck after complete archive validation, immediately before the
+            # fresh poll. No mutable or mismatched archive can authorize reset.
+            _verify_reset_archive(repository, request)
         report.update(snapshot_count_before=count, snapshot_count_after=count, scopes=scope_count)
         report.update(not_before=metadata['not_before'], failure_count=metadata['failure_count'])
         if not initialize and not reset_history and metadata['not_before'] and current < metadata['not_before']:
             report.update(status='WAITING', warning='durable retry/backoff deadline has not elapsed')
+            report['phase'] = 'waiting'
             record()
             return report
 
+        report['phase'] = 'polling'
         store = Store(str(work / 'reset.sqlite3' if reset_history else live))
         if initialize:
             outcome = {'status': 'INITIALIZED', 'retry_after': 0}
@@ -270,6 +365,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             deadline = None
         backup = work / 'starcup-final.sqlite3'
         store.backup(str(backup))
+        report['phase'] = 'validating_candidate'
         # Reuse this validated post-poll view for publication; do not render
         # the same immutable backup a third time. Never reuse the pre-poll view.
         collection = _checked_collection(backup, poll_seconds)
@@ -285,10 +381,15 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             state['observation_epoch_started_at'] = current
         elif 'observation_epoch_started_at' in metadata:
             state['observation_epoch_started_at'] = metadata['observation_epoch_started_at']
+        if request is not None and reset_history:
+            state['last_completed_reset'] = {**request, 'completed_at': finished}
+        elif 'last_completed_reset' in metadata:
+            state['last_completed_reset'] = metadata['last_completed_reset']
         state_path = work / 'state.json'
         state_path.write_text(dumps(state) + '\n', encoding='utf-8')
         readme = work / 'README.md'
         readme.write_text(STATE_README, encoding='utf-8')
+        report['phase'] = 'preparing_site'
         _write_site(collection, site)
         commit = _candidate(repository, backup, state_path, readme, parent)
         report.update(status=status, snapshot_count_after=count, scopes=scope_count,
@@ -297,8 +398,12 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         if failures:
             report['warning'] = 'collection failed or was partial; previous complete boards were retained and retry/backoff was saved'
         if push_state:
+            report['phase'] = 'pushing_state'
             _git(repository, ['push', 'origin', commit + ':' + STATE_REF])
             report.update(state_pushed=True, site_ready=True)
+            if request is not None and reset_history:
+                report['reset_request_status'] = 'applied'
+        report['phase'] = 'complete'
         record()
         return report
     except Exception as error:
@@ -317,10 +422,11 @@ def main():
     parser.add_argument('--initialize', action='store_true')
     parser.add_argument('--seed')
     parser.add_argument('--reset-history', action='store_true', help='Start fresh active observations only after a successful public collection')
+    parser.add_argument('--reset-request', help='Apply a guarded one-shot reset request, or append when its receipt already exists')
     args = parser.parse_args()
     print(dumps(monitor_round(args.work_dir, args.site_output, poll_seconds=args.poll_seconds,
                              push_state=args.push_state, initialize=args.initialize, seed=args.seed,
-                             reset_history=args.reset_history)))
+                             reset_history=args.reset_history, reset_request=args.reset_request)))
 
 
 if __name__ == '__main__':
