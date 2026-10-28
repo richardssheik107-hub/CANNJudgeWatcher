@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from .core import ContractError
 
+DEFAULT_PROFILE = 'jingdong-final'
+
 
 @dataclass(frozen=True)
 class Profile:

@@ -14,35 +14,28 @@
 
 运行时使用 FastAPI、Uvicorn、HTTPX 与 Python 标准库 SQLite；前端为轻量静态 HTML/CSS/JavaScript，无 CDN 或外部脚本依赖。依赖包的许可由其各自项目保留。后续直接引入第三方源码前，需要核实具体文件的许可证、保留声明，并记录提交 SHA。
 
-## 核对的接口契约（所选星辰杯已实测，其他赛事待验收）
+## 当前比赛的公开接口
+
+当前唯一监控目标为 [VarLenNdRotaryPosEmb](https://cannjudge.cn/public/op_challenge_jingdong_final/varlenndrotaryposemb/ranking?page=1&size=20)。2026-10-28 已真实读取以下无登录 GET 接口：
 
 ```text
 GET /api/groups/public
 GET /api/contests/group/{group_id}
-GET /api/contests/{contest_id}
-GET /api/problems/{problem_id}
-GET /api/problems/{problem_id}/ranking?page=1&size=100
-GET /api/submissions/contest/{contest_id}/stats
-GET /api/submissions/global/list?contestId=...&withCount=1&skip=0&limit=100
+GET /api/contests/6adac8e13ff2fef7e8929a9f
+GET /api/problems/6adb272d1dac5d235bd66d0b
+GET /api/problems/6adb272d1dac5d235bd66d0b/ranking?page=1&size=100
 ```
 
-相关代码依据：
+题目榜直接给出 score、rank、稳定队伍/用户 ID、submission_id 和 result，以及同一响应的 testcases/TBest。当前采用单题榜分数与名次，不借用赛事总榜，不按昵称合并队伍。题目元数据为 `ranking_submission_mode=latest`、`score_mode=1`、`use_baseline=false`。
 
-- [Watcher CannJudgeClient.java](https://github.com/KaranocaVe/CANNJudgeWatcher/blob/9fd0ce770ce09dd9f1cd8401508567c0297050f4/src/main/java/cn/cannjudge/watcher/source/CannJudgeClient.java)
-- [Watcher RowNormalizer.java](https://github.com/KaranocaVe/CANNJudgeWatcher/blob/9fd0ce770ce09dd9f1cd8401508567c0297050f4/src/main/java/cn/cannjudge/watcher/source/RowNormalizer.java)
-- [spdc CLI 排行榜/提交列表实现](https://github.com/spdc-elm/cannjudge-cli/blob/8248b629ef07bde796a642d5a6c21d0abc28e1eb/src/cli.ts)
-- [Windust CLI README](https://github.com/WindustH/cannjudge-cli/blob/680717f1217f042e6da1f982268d6397ff300ce6/README.md)
+采集器每轮新 GET 并请求 `Cache-Control: no-cache`；这不能证明官方后端内部缓存即时更新。官方前端直接展示 API 的 score，不在浏览器重算。公开的[平台文档仓](https://gitcode.com/fuyangchenghu/cann-judge)只有文档，没有后端实现，不能声称已审查生产服务重评分代码。
 
-`score`、`rank`、`team._id`、`user._id` 等字段必须从实际响应取得。缺字段时保留未知或拒绝发布，不把 README 的例子当作当日真实接口已通过的证明。
+## 当前基准与历史最佳
 
-## 星辰杯决赛评分规则与当前基准口径
+平台[计分说明](https://raw.gitcode.com/fuyangchenghu/cann-judge/raw/master/docs/%E5%8A%9F%E8%83%BD%E5%8F%82%E8%80%83/05-%E6%8E%92%E8%A1%8C%E6%A6%9C%E4%B8%8E%E8%AE%A1%E5%88%86.md)描述按全场最优耗时赋分；当前[赛事规则页](https://cannjudge.cn/public/op_challenge_jingdong_final/scoring-rules)正文没有可用于校准的分数公式。通用文档不能直接当作本赛已核验公式。
 
-2026-10-06 已无登录读取 [官方评分规则页](https://cannjudge.cn/public/ct_starcup_aiop_final/scoring-rules) 及 [赛事详情 API](https://cannjudge.cn/api/contests/6abcb2fa694b590c3c300a2e)。详情的 `scoring_rules_enabled=true`，`scoring_rule=default`，`scoring_rules_content` 是本版公式核验依据；赛事发现接口不包含该正文。所选配置启用 `verify_scoring_rules` 后，每轮新增一次完整赛事详情 GET，核对赛事 ID、slug 并保存规则正文、摘要及核验状态，不把第三方工具的自定义分数当作官方规则。
+历史最佳必须对每条已观测完整有效提交采用最新 TBest 重新计分，再选最大值。基准变化不会新建作用域，也不会冻结旧分；最佳值和胜出的完整提交都可能变化。官方原始分不重写，保留审计证据。规则已核验、全点完整且本轮官方成绩一致时才允许公式重算；若出现矛盾，则暂停该题本轮全部同基准锚点及历史最佳认证，下一轮一致后恢复。
 
-该题属于普通题型。单测试点分为 `100 / (1 + log(time / TBest) / log(1.5))`，单题分为全部测试点分数的平均值，保留两位小数。`TBest` 是比赛中该测试点的全场历史最快用时，其他队伍刷新它后，同一提交的官方分数可能下降。题目 `6abcb4fd694b590c3c315c0e` 有 15 个 `default` 测试点，代表提交模式为 `best`；公开榜单中的完整 Pass 行显示 10 个 Pass 结果及 5 个 Hidden 占位。Hidden 仍参与官方完整得分，不能只平均可见 10 点、把隐藏点填零或逐点拼接其他提交。
+当前 15 个测试点只有 5 个可见、10 个 Hidden。公开历史列表此次返回 401，提交详情和管理导出需要相应权限；没有公开的指定历史提交当前重算分接口。不能猜隐藏耗时、用可见点均值替代完整分、缩放旧分或绕过权限。缺少依据时显示未知，不能以当前分或旧时最高分兜底。
 
-主榜使用最新一轮基准下能够确认的完整提交。最新官方完整成绩是可直接使用的依据；历史提交只有在测试点集合、用时、状态、最新 TBest 和已核验公式均完整，并能复现本轮官方成绩时，才允许整条重算并选择最佳。公式不适用于任意赛事或 HCCL 题型，不能把本题的验证结果推广到其他作用域。原始官方分数及跨时间旧峰值保留为历史审计证据，不参与当前基准主榜的比较。
-
-本赛段公开数据缺少 5 个隐藏点的用时或基准，不能精确重算不能由本轮官方成绩确认的旧提交。此类记录保留为“当前基准不可确认”，覆盖不足时主榜标为部分覆盖或不可用，不能称为完整历史最高分。即使已观测候选全部可确认，也不证明获得监控启动前的全部历史提交。
-
-匿名历史提交列表实测返回 401，单份提交详情返回 403；当前配置保持公开历史列表回补关闭。登录态不保证能读取其他参赛者的隐藏测试点或私有提交，不能以提供密码作为完整重算的前提，也不绕过这些权限边界。官方规则、题目元数据和公开榜单原始响应保存在 Git 忽略的 `data/github-validation/current-baseline-fix/`，仅保留公开来源证据。
+当前取证文件、来源 URL、时间和 SHA256 保存在 Git 忽略的 `data/new-contest-validation/`、`data/current-basis-audit-20261028/`。真实样本中未发生可核对的可见基准刷新事件；移动基准降分与冲突恢复由隔离接口回归验证，生产采集/发布另有运行证据，二者不混称。

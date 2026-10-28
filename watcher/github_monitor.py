@@ -17,7 +17,7 @@ from urllib.parse import quote
 from .collector import poll
 from .core import ContractError, dumps, utc
 from .source import Client
-from .profiles import PROFILES, get_profile
+from .profiles import DEFAULT_PROFILE, PROFILES, get_profile
 from .static_export import CONTEST_SLUG, ROOT, _collect, _write_site
 from .store import Store
 
@@ -441,7 +441,7 @@ def main():
     parser.add_argument('--seed')
     parser.add_argument('--reset-history', action='store_true', help='Start fresh active observations only after a successful public collection')
     parser.add_argument('--reset-request', help='Apply a guarded one-shot reset request, or append when its receipt already exists')
-    parser.add_argument('--profile', choices=tuple(PROFILES), default='starcup-final')
+    parser.add_argument('--profile', choices=tuple(PROFILES), default=DEFAULT_PROFILE)
     args = parser.parse_args()
     print(dumps(monitor_round(args.work_dir, args.site_output, poll_seconds=args.poll_seconds,
                              push_state=args.push_state, initialize=args.initialize, seed=args.seed,

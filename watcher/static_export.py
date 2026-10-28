@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 from .collector import archive_rows
 from .core import ContractError, clean, digest, dumps, observation, scope_id, utc, validate_snapshot
-from .profiles import PROFILES, get_profile
+from .profiles import DEFAULT_PROFILE, PROFILES, get_profile
 from .store import Store
 
 CONTEST_SLUG = get_profile().contest_slug  # Legacy import compatibility.
@@ -257,7 +257,7 @@ def main():
     parser.add_argument('--db', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--poll-seconds', type=int, default=600)
-    parser.add_argument('--profile', choices=tuple(PROFILES), default='starcup-final')
+    parser.add_argument('--profile', choices=tuple(PROFILES), default=DEFAULT_PROFILE)
     args = parser.parse_args()
     print(dumps(export_site(args.db, args.output, poll_seconds=args.poll_seconds, profile=args.profile)))
 
