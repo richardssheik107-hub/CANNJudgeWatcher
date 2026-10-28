@@ -53,6 +53,7 @@ class Client:
             except ValueError as e:
                 raise ContractError('CLI output is not raw JSON') from e
         headers = {'Accept': 'application/json', 'User-Agent': 'CANNJudgeWatcher-ObservedPeak/0.1 (public-read-only)',
+                   'Cache-Control': 'no-cache',
                    'Origin': ORIGIN, 'Referer': ORIGIN + '/'}
         cookie = os.environ.get(self.config.get('cookie_env', 'CANNJUDGE_COOKIE'), '')
         if cookie:

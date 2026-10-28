@@ -28,18 +28,19 @@ function observedCoverage(row, board) {
 function historyExplanation(row, board) {
   if(!historyModel(board)) return coverageStatus(row.peak_status)+' · '+submissionCoverage(row);
   if(row.history_peak_status==='no-valid-history') return '尚无已观测有效提交可用于比较';
-  if(row.history_peak_status!=='verified-observed') return '旧提交缺少完整重算数据，当前分不能代替历史最高分';
+  if(row.history_peak_status!=='verified-observed') return '缺少完整或一致的重算依据，当前分不能代替历史最佳';
   if(Number(row.historical_submissions)===1 && board.score_basis.formula_recomputation_enabled===false) return '仅有当前一个有效版本，尚无旧版本可比较';
   return '已观测有效提交均可按当前基准确认';
 }
 function basisExplanation(board) {
   const basis=board.score_basis;
+  const calibrationNotice=basis.calibration_status==='conflict' ? '本轮存在同基准矛盾，暂停该题历史最佳认证。' : '';
   const hidden=Number(basis.total_testcase_count)-Number(basis.visible_testcase_count);
   const rows=Array.isArray(board.rows) ? board.rows : [];
   const officialOnly=currentBasis(board) && basis.formula_recomputation_enabled===false
     && rows.some(row=>Number.isInteger(row.official_anchor_submissions) && row.official_anchor_submissions>0)
     && rows.every(row=>row.formula_rescored_submissions===0);
-  if(historyModel(board)) return (Number.isInteger(hidden) && hidden>0 ? hidden+' 个计分测试点的耗时和基准未公开。' : '')+(officialOnly ? '当前没有历史提交的完整公式重算结果。' : '')+'“观测历史最高”保留当时公布过的最高有效分，基准可能不同；“当前基准历史最高”只在已观测提交均可确认时显示，否则显示“无法确认”。若仅有当前一个有效版本，相等只代表尚无旧版本可比较。未观测或未公开的提交不在覆盖范围内。';
+  if(historyModel(board)) return calibrationNotice+'历史最佳按最新全场测试点最优用时，对每条历史完整提交重算后取最大值；其他队伍刷新基准时，历史最佳也可能下降。'+(Number.isInteger(hidden) && hidden>0 ? hidden+' 个计分测试点的耗时和基准未公开。' : '')+(officialOnly ? '当前没有历史提交的完整公式重算结果。' : '')+'缺少重算条件时显示“无法确认”，不沿用旧分，也不以当前分兜底。若仅有当前一个有效版本，相等只代表尚无旧版本可比较。未观测或未公开的提交不在覆盖范围内。';
   return (officialOnly ? '当前仅采用本轮官方成绩；完整历史重算 0 条，真实历史最高分无法独立确认。当前分与可确认最高分相等，不证明真实历史最高分也相等。' : '')+(Number.isInteger(hidden) && hidden > 0 ? hidden+' 个计分测试点的耗时和基准未公开，部分历史提交无法重算。' : '只比较公开数据足以确认的完整提交，缺少重算条件的历史提交单独标注。')+'旧高分保留用于审计，不参与当前同基准比较。当前可确认结果不代表未公开历史提交中的真实最高分。';
 }
 function staticPath(path) {
@@ -121,7 +122,7 @@ function render() {
   const query=$('search').value.trim().toLowerCase();
   const rows=b.rows.filter(r=>(r.name+' '+r.team_key).toLowerCase().includes(query));
   const modern=historyModel(b), mode=$('sort').value;
-  const sortValue=row=>mode==='current' ? row.official_score : mode==='audit' ? auditPeak(row,b) : modern ? historyPeak(row,b) : row.peak_score;
+  const sortValue=row=>mode==='peak' ? (modern ? historyPeak(row,b) : row.peak_score) : row.official_score;
   rows.sort((a,b)=>{
     const left=sortValue(a), right=sortValue(b);
     return left==null && right!=null ? 1 : right==null && left!=null ? -1 : left!=null && right!=null && Number(right)!==Number(left) ? Number(right)-Number(left) : a.team_key.localeCompare(b.team_key);
@@ -129,17 +130,17 @@ function render() {
   state.rows=rows;
   $('demo-banner').classList.toggle('hidden', !b.scope.demo);
   const comparable=currentBasis(b);
-  $('score-columns').innerHTML=modern ? '<th><span id="rank-basis-label">官方</span>名次</th><th>队伍</th><th class="green">官方当前</th><th class="amber">观测历史最高<span class="subtext">当时基准 · 仅供参考</span></th><th id="peak-score-label" class="blue">当前基准历史最高</th><th id="gap-label">同基准分差</th><th>观测覆盖</th>' : '<th>排名（<span id="rank-basis-label" class="purple">原始峰值</span> / <span class="amber">官方</span>）</th><th>队伍</th><th>总分（<span class="green">官方当前</span> / <span id="peak-score-label" class="blue">原始官方峰值</span>）</th><th id="gap-label">原始官方分差</th><th>题目覆盖</th>';
-  $('score-columns').closest('table').classList.toggle('three-scores',modern);
-  const scoreLabel=modern ? '当前分与历史分' : comparable ? '当前基准可确认最高分' : '原始官方分峰值合计';
+  $('score-columns').innerHTML=modern ? '<th><span id="rank-basis-label">官方</span>名次</th><th>队伍</th><th class="green">官方当前</th><th id="peak-score-label" class="blue">最新基准历史最佳</th><th id="gap-label">同基准分差</th><th>观测覆盖</th>' : '<th>排名（<span id="rank-basis-label" class="purple">原始峰值</span> / <span class="amber">官方</span>）</th><th>队伍</th><th>总分（<span class="green">官方当前</span> / <span id="peak-score-label" class="blue">原始官方峰值</span>）</th><th id="gap-label">原始官方分差</th><th>题目覆盖</th>';
+  $('score-columns').closest('table').classList.toggle('current-basis-scores',modern);
+  const scoreLabel=modern ? '当前分与动态历史最佳' : comparable ? '当前基准可确认最高分' : '原始官方分峰值合计';
   $('board-title').textContent=b.scope.group+(/^[A-D]$/.test(b.scope.group)?' 组':'')+' · '+scoreLabel;
-  $('peak-sort-label').textContent=modern ? '当前基准历史最高（已确认）' : scoreLabel;
-  $('peak-score-label').textContent=modern ? '当前基准历史最高' : comparable ? '当前基准可确认最高分' : '原始官方峰值';
+  $('peak-sort-label').textContent=modern ? '最新基准历史最佳（已确认）' : scoreLabel;
+  $('peak-score-label').textContent=modern ? '最新基准历史最佳' : comparable ? '当前基准可确认最高分' : '原始官方峰值';
   $('rank-basis-label').textContent=modern ? '官方' : comparable ? '可确认' : '原始峰值';
   $('gap-label').textContent=modern ? '同基准分差' : comparable ? '当前基准分差' : '原始官方分差';
-  $('comparison-label').textContent=modern ? '原始历史分高于当前' : comparable ? '同基准高于当前官方分' : '旧记录高于当前官方分';
-  $('comparison-note').textContent=modern ? '基准可能不同，不代表性能回退' : comparable ? '仅统计当前基准可确认结果' : '原始官方分差，基准可能不同';
-  $('warning').textContent=modern ? '官方当前分对应本轮公开榜单；观测历史最高是采集期间公布过的有效原始分峰值，保留当时基准；当前基准历史最高只覆盖已观测且能完整确认的提交。存在无法重算的旧提交时显示“无法确认”，不以当前分代替。单题只选择一条完整提交，不拼接不同提交的测试点。' : comparable ? '当前基准可确认最高分 = 每道题采用最近完整快照的官方成绩，或公开数据足够时对完整历史提交按同一基准重算，再选择其中最大值。单题只选择一条完整提交，不拼接不同提交的测试点。' : '原始官方分峰值合计 = 每道题已记录的完整有效官方分数取最大值后求和。原始分数可能使用不同基准，不表示统一基准下的真实最高性能。';
+  $('comparison-label').textContent=modern ? '同基准历史最佳高于当前' : comparable ? '同基准高于当前官方分' : '旧记录高于当前官方分';
+  $('comparison-note').textContent=modern ? '只统计当前基准下可完整确认的结果' : comparable ? '仅统计当前基准可确认结果' : '原始官方分差，基准可能不同';
+  $('warning').textContent=modern ? '动态历史最佳 = 对已观测的每条完整有效历史提交，按最新全场测试点最优用时重算后取最大值。其他队伍刷新基准时，该值也可能下降。存在无法重算的旧提交时显示“无法确认”，不沿用旧时高分、不以当前分代替。单题只选择一条完整提交，不拼接测试点。' : comparable ? '当前基准可确认最高分 = 每道题采用最近完整快照的官方成绩，或公开数据足够时对完整历史提交按同一基准重算，再选择其中最大值。单题只选择一条完整提交，不拼接不同提交的测试点。' : '原始官方分峰值合计 = 每道题已记录的完整有效官方分数取最大值后求和。原始分数可能使用不同基准，不表示统一基准下的真实最高性能。';
   $('basis-explanation').textContent=(comparable ? basisExplanation(b)+' ' : '历史分数可能使用不同的全场基准。')+'本榜不是官方最终榜，也不推断未提交、未公开或漏采的成绩。缺少官方名次时显示“—”，参考排名不冒充官方排名。';
   $('basis-summary').classList.toggle('hidden',!comparable);
   if(comparable) {
@@ -148,7 +149,7 @@ function render() {
   }
   $('epoch').textContent=b.scope.epoch;
   $('teams').textContent=b.rows.length;
-  $('regressions').textContent=b.rows.filter(r=>modern ? auditPeak(r,b)!=null && r.official_score!=null && Number(auditPeak(r,b))>Number(r.official_score) : r.gap!==null && Number(r.gap)>0).length;
+  $('regressions').textContent=b.rows.filter(r=>modern ? historyGap(r,b)!=null && Number(historyGap(r,b))>0 : r.gap!==null && Number(r.gap)>0).length;
   $('snapshots').textContent=b.snapshot_count;
   $('coverage').textContent='起始于 '+when(b.first_seen,true)+'（北京时间）';
   $('latest').textContent=when(b.observed_at);
@@ -160,8 +161,7 @@ function render() {
   $('rows').innerHTML=rows.map(r=>modern ? `<tr>
     <td><span class="amber">${r.official_rank==null?'—':'#'+r.official_rank}</span>${r.official_rank==null && r.reference_rank!=null ? `<span class="subtext">按当前分参考 #${r.reference_rank}<br>非官方名次</span>` : ''}</td>
     <td><button class="team-button" data-team="${esc(r.team_key)}">${esc(r.name)}</button><span class="subtext score-state">${esc(observedCoverage(r,b))}</span>${!r.present?'<span class="subtext">未在最新榜单中 · 历史仍保留</span>':''}${r.sum_mismatch?'<span class="subtext">逐题合计与官方总分不一致 · 待核对</span>':''}</td>
-    <td class="green">${fmt(r.official_score)}</td>
-    <td class="amber">${fmt(auditPeak(r,b))}<span class="subtext">当时基准，不能当作当前性能</span></td>
+    <td class="green">${fmt(r.official_score)}${r.current_score_consistency==='conflict'?'<span class="subtext score-state partial">与公开基准/规则不一致，待核对</span>':''}</td>
     <td class="${historyPeak(r,b)==null?'unknown-score':'blue'}">${esc(historyPeakText(r,b))}<span class="subtext score-state">${esc(historyExplanation(r,b))}</span></td>
     <td class="gap">${historyGap(r,b)==null?'—':(historyGap(r,b)>0?'+':'')+fmt(historyGap(r,b))}</td>
     <td class="coverage">${r.observed_problems} / ${r.total_problems}<span class="subtext">可确认题目<br>${esc(submissionCoverage(r))}</span></td></tr>` : `<tr>
@@ -199,15 +199,15 @@ async function showTeam(key) {
   $('team-dialog').showModal();
   try {
     const [history, archived]=await Promise.all([json(resource('history',{scope:b.scope_id,team:key},manifest)), json(resource('archive',{scope:b.scope_id,team:key},manifest))]);
-    $('team-content').innerHTML=`<p class="detail-note">${esc(key)} · 官方当前 ${fmt(row.official_score)}${modern ? ' / 观测历史最高（当时基准） '+fmt(auditPeak(row,b))+' / 当前基准历史最高 '+esc(historyPeakText(row,b)) : ' / '+esc(label)+' '+fmt(row.peak_score)}<br>本次详情对应 ${esc(when(b.observed_at,true))} 的榜单。单题只选择一条完整有效提交。</p>
+    $('team-content').innerHTML=`<p class="detail-note">${esc(key)} · 官方当前 ${fmt(row.official_score)}${modern ? ' / 最新基准历史最佳 '+esc(historyPeakText(row,b)) : ' / '+esc(label)+' '+fmt(row.peak_score)}<br>本次详情对应 ${esc(when(b.observed_at,true))} 的榜单。单题只选择一条完整有效提交。</p>
       ${comparable ? `<div class="basis-note ${row.peak_status==='complete'?'':'partial'}"><b>${esc(modern ? historyExplanation(row,b) : coverageStatus(row.peak_status))}</b> · ${esc(observedCoverage(row,b))}<br>${modern ? esc(submissionCoverage(row))+'<br>' : ''}比较基准截至 ${esc(when(b.score_basis.as_of,true))}（北京时间）。${esc(basisExplanation(b))}${reasonsText(row.reasons)?'<br>'+esc(reasonsText(row.reasons)):''}</div>` : '<p class="detail-note">以下原始官方分可能使用不同基准，只用于记录当时公布的成绩。</p>'}
-      <div class="audit-summary"><b>历史原始官方最高分合计（审计） · ${fmt(auditPeak(row,b))}</b><p>保留各次原始官方分，不使用旧分数推断当前基准下的最高性能。</p></div>
+      <div class="audit-summary"><b>旧时官方分最大值（审计，非当前历史最佳） · ${fmt(auditPeak(row,b))}</b><p>这里只保留当时公布过的原始分数；即使曾为 100 分，也不表示按最新基准仍为 100 分，不参与主榜、同基准分差或排序。</p></div>
       ${modern ? '<p class="detail-note">以下只列出当前基准下已确认部分的下界 '+fmt(row.confirmed_peak_lower_bound ?? row.peak_score)+'，用于核查证据。只要存在无法重算的旧提交，这个值就不能代替当前基准历史最高分。</p>' : ''}
       <h3>${esc(label)} · 逐题证据</h3><div class="table-wrap"><table><thead><tr><th>题目</th><th>官方当前 / ${esc(label)}</th><th>选中提交当时官方分</th><th>原始官方最高（审计）</th><th>首次观测时间</th><th>确认依据</th></tr></thead><tbody>${b.scope.problems.map(p=>{
         const best=row.best.find(x=>x.problem_id===p.id), cur=row.current.find(x=>x.problem_id===p.id), audit=auditBest(row,b).find(x=>x.problem_id===p.id);
         const basisKind=best?.score_basis_kind==='official-current' ? '最新官方成绩锚点' : best?.score_basis_kind==='recomputed-current' ? '当前基准完整重算' : '原始官方记录';
         return `<tr><td>${esc(p.title)}</td><td><span class="green">${fmt(cur?.score)}</span> / <span class="blue">${fmt(best?.score)}</span></td><td>${fmt(originalScore(best,b))}</td><td>${fmt(audit?.score)}${audit?`<br><button class="quiet evidence-button" data-evidence="${esc(audit.evidence_id)}" data-evidence-kind="audit">查看旧记录</button>`:''}</td><td>${esc(when(best?.observed_at,true))}</td><td>${best ? `<button class="quiet evidence-button" data-evidence="${esc(best.evidence_id)}" data-evidence-kind="current">查看确认依据</button><span class="subtext">${esc(basisKind)} · ${esc(best.submission_id||'源站未公开提交 ID')}</span>` : comparable ? '缺少完整提交数据，无法确认' : '尚未记录有效分数'}</td></tr>`;}).join('')}</tbody></table></div>
-      <h3>当时官方分（基准随时间变化） · 最近 ${history.points.length} 份已加载快照</h3><p class="detail-note">这条曲线保留各次公布的官方分数，基准变化也会影响分数高低。</p>${chart(history.points)}${history.next_before?'<p class="detail-note">还有更早快照。完整榜单观测记录可使用页面下方的 JSONL 导出获取。</p>':''}
+      <h3>旧时官方分轨迹（审计） · 最近 ${history.points.length} 份已加载快照</h3><p class="detail-note">这条审计曲线保留当时公布的官方分，不是按最新基准重算的历史最佳轨迹。</p>${chart(history.points)}${history.next_before?'<p class="detail-note">还有更早快照。完整榜单观测记录可使用页面下方的 JSONL 导出获取。</p>':''}
       <h3>已归档的公开提交列表 · ${archived.total} 条已关联版本</h3><p class="detail-note">提交列表与榜单观测分开保存。未公开 score 的历史提交不能被倒推成历史最高分；用户 ID 与队伍 ID 无明确映射时不强行关联。此处展示最近 20 条已关联记录。</p>
       ${archived.rows.length?`<pre>${esc(JSON.stringify(archived.rows.slice(0,20).map(r=>({id:r.submission_id,problem:r.problem_id,status:r.data.status,created:r.data.create_time})),null,2))}</pre>`:'<p class="detail-note">尚无关联的公开历史列表归档；这不代表该队没有提交历史。</p>'}
       <h3>分数口径与原始成绩证据</h3><pre id="evidence-content">点击“查看确认依据”或“查看旧记录”，分别查看当前比较口径与保留的原始官方分。</pre>`;
@@ -226,13 +226,15 @@ $('refresh').addEventListener('click',load); $('scope').addEventListener('change
 $('token-button').addEventListener('click',()=>{const value=prompt('输入看板访问令牌（仅保存在本标签页会话中，不会放入 URL）');if(value!==null){value?sessionStorage.setItem('watcher-token',value):sessionStorage.removeItem('watcher-token');load();}});
 function csvRows(board, rows) {
   const comparable=currentBasis(board), modern=historyModel(board);
-  return [['队伍','队伍ID','官方名次','按当前分参考名次(非官方)','官方当前分','观测历史最高(当时基准，非当前性能)','当前基准历史最高(仅已观测范围)','当前基准历史最高状态','当前基准可确认下界(非完整峰值)','同基准分差','比较基准时间','观测范围','已记录完整有效提交数','当前基准可确认提交数','最新官方成绩锚点数','完整公式重算数','缺少重算条件提交数','缺失原因','已确认或记录有效题数','总题数','观测时间','演示数据'],...rows.map(row=>[
-    row.name,row.team_key,row.official_rank,row.reference_rank,row.official_score,auditPeak(row,board),
+  return [['队伍','队伍ID','官方名次','按当前分参考名次(非官方)','官方当前分','最新基准历史最佳(仅已观测范围)','当前基准历史最高状态','同基准分差','比较基准时间','观测范围','当前基准可确认下界(非完整峰值)','已记录完整有效提交数','当前基准可确认提交数','最新官方成绩锚点数','完整公式重算数','缺少重算条件提交数','缺失原因','已确认或记录有效题数','总题数','观测时间','演示数据','旧时官方分最大值(审计，非当前历史最佳)','当前官方分一致性'],...rows.map(row=>[
+    row.name,row.team_key,row.official_rank,row.reference_rank,row.official_score,
     comparable?historyPeak(row,board):null,modern?row.history_peak_status:comparable?coverageStatus(row.peak_status):'未统一基准',
-    comparable?(row.confirmed_peak_lower_bound ?? row.peak_score):null,comparable?historyGap(row,board):null,
-    comparable?board.score_basis.as_of:null,modern?observedCoverage(row,board):'已观测记录，不代表完整赛事历史',
+    comparable?historyGap(row,board):null,comparable?board.score_basis.as_of:null,
+    modern?observedCoverage(row,board):'已观测记录，不代表完整赛事历史',
+    comparable?(row.confirmed_peak_lower_bound ?? row.peak_score):null,
     row.historical_submissions,row.rescored_submissions,row.official_anchor_submissions,row.formula_rescored_submissions,
-    row.unavailable_submissions,reasonsText(row.reasons),row.observed_problems,row.total_problems,board.observed_at,board.scope.demo
+    row.unavailable_submissions,reasonsText(row.reasons),row.observed_problems,row.total_problems,board.observed_at,board.scope.demo,
+    auditPeak(row,board),row.current_score_consistency ?? null
   ])];
 }
 $('export-csv').addEventListener('click',()=>{

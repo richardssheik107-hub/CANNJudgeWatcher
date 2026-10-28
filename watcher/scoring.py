@@ -189,13 +189,30 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
                 anchors[_candidate_key(row, eid)] = (row, evidence)
 
     can_recompute = verified and baseline_complete
+    calibration_status = 'not-verifiable'
+    calibration_conflicts = []
     if can_recompute:
         # Verify this exact benchmark/rule against every current official anchor.
         calibration = [(row, _recompute(row, cases, rule)) for row, _ in anchors.values()]
-        if not calibration or any(score is None or Decimal(score) != Decimal(row['score'])
-                                  for row, score in calibration):
+        calibration_conflicts = [
+            {'team_key': row['team_key'], 'submission_id': row['submission_id'],
+             'official_score': row['score'], 'formula_score': score}
+            for row, score in calibration
+            if score is None or Decimal(score) != Decimal(row['score'])
+        ]
+        if not calibration or calibration_conflicts:
             can_recompute = False
             reasons.append('公式与本轮完整官方成绩不能一致复现，历史重算已停止。')
+            if calibration_conflicts:
+                calibration_status = 'conflict'
+                # A stale cached official score or a mixed benchmark generation
+                # must not be re-certified through the official-anchor fallback.
+                # Quarantine this problem's generation until a coherent round;
+                # keep the official numbers immutable as source/audit evidence.
+                anchors = {}
+                reasons.append('本轮官方成绩与公开基准矛盾，当前基准成绩待同步确认；不沿用旧分或推算值作为峰值。')
+        else:
+            calibration_status = 'verified'
 
     any_confirmed, any_missing = False, False
     for team in teams.values():
@@ -243,7 +260,8 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
         status = 'unavailable' if not confirmed else 'partial' if missing else 'complete'
         team.update(historical_submissions=len(candidates), rescored_submissions=confirmed,
                     unavailable_submissions=missing, official_anchor_submissions=anchor_count,
-                    formula_rescored_submissions=local_count, peak_status=status, reasons=row_reasons)
+                    formula_rescored_submissions=local_count, peak_status=status, reasons=row_reasons,
+                    current_score_consistency=calibration_status)
         any_confirmed = any_confirmed or bool(confirmed)
         any_missing = any_missing or bool(missing)
 
@@ -252,6 +270,8 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
             'formula': VERIFIED_FORMULAS[rule] if verified else None,
             'coverage_scope': 'observed-eligible-submissions',
             'formula_verified': verified, 'rule_digest': context.get('rule_digest') if isinstance(context, dict) else None,
+            'calibration_status': calibration_status,
+            'calibration_conflicts': calibration_conflicts,
             'baseline_complete': baseline_complete,
             'formula_recomputation_enabled': can_recompute, 'visible_testcase_count': visible,
             'total_testcase_count': len(cases), 'reasons': reasons}
@@ -275,6 +295,7 @@ def apply_current_basis(snapshot, teams, evidences):
         team['observed_official_best'] = dict(team['best'])
         team['best'] = {}
         team['reasons'] = []
+        team['current_score_consistency'] = 'verified'
         for key in counters:
             team[key] = 0
     problems = []
@@ -287,6 +308,11 @@ def apply_current_basis(snapshot, teams, evidences):
         for key, local in local_teams.items():
             target = teams[key]
             target['best'].update(local['best'])
+            if local['current_score_consistency'] == 'conflict':
+                target['current_score_consistency'] = 'conflict'
+            elif (local['current_score_consistency'] != 'verified'
+                  and target['current_score_consistency'] != 'conflict'):
+                target['current_score_consistency'] = 'not-verifiable'
             for counter in counters:
                 target[counter] += local[counter]
             prefix = str(problem.get('title') or pid) + '：' if multiple else ''
@@ -308,6 +334,11 @@ def apply_current_basis(snapshot, teams, evidences):
         formula_verified=all(p['formula_verified'] for p in problems),
         baseline_complete=all(p['baseline_complete'] for p in problems),
         formula_recomputation_enabled=any(p['formula_recomputation_enabled'] for p in problems),
+        calibration_status=('conflict' if any(p['calibration_status'] == 'conflict' for p in problems)
+                            else 'verified' if all(p['calibration_status'] == 'verified' for p in problems)
+                            else 'not-verifiable'),
+        calibration_conflicts=[{'problem_id': p['problem_id'], **conflict}
+                               for p in problems for conflict in p['calibration_conflicts']],
         visible_testcase_count=sum(p['visible_testcase_count'] for p in problems),
         total_testcase_count=sum(p['total_testcase_count'] for p in problems),
         reasons=list(dict.fromkeys(reason for p in problems for reason in p['reasons'])),

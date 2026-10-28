@@ -124,7 +124,12 @@ def test_exact_calibration_required(store):
     out = board(store, make_snapshot(1, '90', submission='old'),
                 make_snapshot(2, '66.68', submission='new'))
     row = out['rows'][0]
-    assert row['peak_score'] == '66.68' and row['unavailable_submissions'] == 1
+    assert row['official_score'] == '66.68' and row['observed_official_peak_score'] == '90'
+    assert row['peak_score'] is None and row['unavailable_submissions'] == 2
+    assert row['current_baseline_history_peak_score'] is None
+    assert row['confirmed_peak_lower_bound'] is None
+    assert row['current_score_consistency'] == 'conflict'
+    assert out['score_basis']['calibration_status'] == 'conflict'
     assert not out['score_basis']['formula_recomputation_enabled']
     assert any('一致复现' in reason for reason in out['score_basis']['reasons'])
 

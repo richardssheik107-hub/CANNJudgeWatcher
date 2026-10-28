@@ -110,12 +110,15 @@ def test_each_problem_calibrates_independently(store):
     best = {item['problem_id']: item for item in row['best']}
     assert best[NEW_PROBLEM]['score'] == '66.67'
     assert best[NEW_PROBLEM]['score_basis_kind'] == 'recomputed-current'
-    assert best[SECOND_PROBLEM]['score'] == '35'
-    assert best[SECOND_PROBLEM]['score_basis_kind'] == 'official-current'
-    assert row['peak_score'] == '101.67' and row['observed_official_peak_score'] == '156.67'
-    assert row['historical_submissions'] == 4 and row['rescored_submissions'] == 3
-    assert row['official_anchor_submissions'] == 2 and row['formula_rescored_submissions'] == 1
-    assert row['unavailable_submissions'] == 1 and row['peak_status'] == 'partial'
+    # A conflicting current score cannot be re-certified by the anchor fallback.
+    # The independently calibrated first problem still supplies a lower bound.
+    assert SECOND_PROBLEM not in best
+    assert row['peak_score'] == '66.67' and row['observed_official_peak_score'] == '156.67'
+    assert row['historical_submissions'] == 4 and row['rescored_submissions'] == 2
+    assert row['official_anchor_submissions'] == 1 and row['formula_rescored_submissions'] == 1
+    assert row['unavailable_submissions'] == 2 and row['peak_status'] == 'partial'
+    assert row['current_baseline_history_peak_score'] is None
+    assert row['current_score_consistency'] == 'conflict'
     assert per_problem(out)[NEW_PROBLEM]['formula_recomputation_enabled']
     assert not per_problem(out)[SECOND_PROBLEM]['formula_recomputation_enabled']
     assert out['score_basis']['formula_recomputation_enabled']
