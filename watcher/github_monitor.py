@@ -17,10 +17,11 @@ from urllib.parse import quote
 from .collector import poll
 from .core import ContractError, dumps, utc
 from .source import Client
+from .profiles import PROFILES, get_profile
 from .static_export import CONTEST_SLUG, ROOT, _collect, _write_site
 from .store import Store
 
-STATE_BRANCH = 'watcher-state'
+STATE_BRANCH = get_profile().state_branch  # Legacy import compatibility.
 STATE_REF = 'refs/heads/' + STATE_BRANCH
 MAX_DB_BYTES = 90 * 1024 * 1024
 BOT_NAME = 'github-actions[bot]'
@@ -60,26 +61,34 @@ def _git(repo, args, *, input_bytes=None):
     return result.stdout
 
 
-def _remote_head(repo):
-    output = _git(repo, ['ls-remote', '--heads', 'origin', STATE_REF]).decode('utf-8').strip()
+def _remote_head(repo, profile='starcup-final'):
+    state_ref = get_profile(profile).state_ref
+    output = _git(repo, ['ls-remote', '--heads', 'origin', state_ref]).decode('utf-8').strip()
     if not output:
         return None
     fields = output.split()
-    if len(fields) != 2 or fields[1] != STATE_REF or not re.fullmatch(r'[0-9a-f]{40,64}', fields[0]):
+    if len(fields) != 2 or fields[1] != state_ref or not re.fullmatch(r'[0-9a-f]{40,64}', fields[0]):
         raise MonitorError('remote state ref could not be identified safely')
-    _git(repo, ['fetch', '--depth=1', '--no-tags', 'origin', STATE_REF])
+    _git(repo, ['fetch', '--depth=1', '--no-tags', 'origin', state_ref])
     head = _git(repo, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']).decode('ascii').strip()
     if not re.fullmatch(r'[0-9a-f]{40,64}', head):
         raise MonitorError('fetched state commit is invalid')
     return head
 
 
-def _configuration(path):
+def _configuration(path, profile='starcup-final'):
+    publication = get_profile(profile)
     config = json.loads(Path(path).read_text(encoding='utf-8'))
     if (not isinstance(config, dict) or config.get('transport') != 'http'
             or config.get('cookie_env') != '' or config.get('history_pages_per_poll') != 0
-            or config.get('include') != [{'slug': CONTEST_SLUG}]):
-        raise ContractError('GitHub collection requires the fixed public starcup configuration without credentials/backfill')
+            or config.get('include') != [{'slug': publication.contest_slug}]
+            or (publication.problem_ids and
+                (config.get('problem_ids') != list(publication.problem_ids)
+                 or config.get('verify_scoring_rules') is not True
+                 or config.get('ranking_scope') != publication.ranking_scope))
+            or (not publication.problem_ids and
+                (config.get('problem_ids') or config.get('ranking_scope', 'contest') != 'contest'))):
+        raise ContractError('GitHub collection requires the selected fixed public configuration without credentials/backfill')
     return config
 
 
@@ -99,7 +108,7 @@ def _reset_request_fields(raw):
             or any(part in ('', '.', '..') or part.endswith('.lock')
                    for part in raw['archive_ref'].split('/'))
             or '..' in raw['archive_ref'] or raw['archive_ref'].endswith('.')
-            or raw['archive_ref'] == STATE_REF):
+            or raw['archive_ref'] in {item.state_ref for item in PROFILES.values()}):
         raise ContractError('invalid one-shot reset request')
     for field in ('expected_db_bytes', 'expected_snapshot_count'):
         if field in raw and (type(raw[field]) is not int or raw[field] <= 0):
@@ -134,9 +143,11 @@ def _verify_reset_archive(repo, request):
         raise ContractError('reset archive ref does not match the expected immutable state commit')
 
 
-def _metadata(raw, *, now=None):
+def _metadata(raw, *, now=None, profile='starcup-final'):
+    publication = get_profile(profile)
     if (not isinstance(raw, dict) or type(raw.get('schema')) is not int or raw.get('schema') != 1
-            or raw.get('contest_slug') != CONTEST_SLUG or 'not_before' not in raw
+            or raw.get('contest_slug') != publication.contest_slug or 'not_before' not in raw
+            or raw.get('profile', 'starcup-final') != publication.name
             or not isinstance(raw.get('db_sha256'), str)
             or not re.fullmatch(r'[0-9a-f]{64}', raw['db_sha256'])
             or type(raw.get('failure_count')) is not int or raw['failure_count'] < 0):
@@ -185,7 +196,7 @@ def _readonly_backup(source: Path, destination: Path):
         reader.close()
 
 
-def _checked_collection(path, poll_seconds):
+def _checked_collection(path, poll_seconds, profile='starcup-final'):
     if path.stat().st_size >= MAX_DB_BYTES:
         raise ContractError('state database reached the 90 MiB safety limit')
     reader = sqlite3.connect('file:' + quote(path.resolve().as_posix(), safe='/:') + '?mode=ro', uri=True)
@@ -195,17 +206,19 @@ def _checked_collection(path, poll_seconds):
             raise ContractError('operator-imported observations cannot initialize or enter automated public state')
     finally:
         reader.close()
-    return _collect(path, poll_seconds)
+    return (_collect(path, poll_seconds) if profile == 'starcup-final'
+            else _collect(path, poll_seconds, profile=profile))
 
 
-def _validate_database(path, poll_seconds):
-    _, manifest, snapshot_count = _checked_collection(path, poll_seconds)
+def _validate_database(path, poll_seconds, profile='starcup-final'):
+    _, manifest, snapshot_count = _checked_collection(path, poll_seconds, profile)
     return snapshot_count, len(manifest['boards'])
 
 
-def _candidate(repo, database, metadata_path, readme_path, parent):
+def _candidate(repo, database, metadata_path, readme_path, parent, profile='starcup-final'):
+    publication = get_profile(profile)
     blobs = []
-    for name, path in [('README.md', readme_path), ('starcup-final.sqlite3', database), ('state.json', metadata_path)]:
+    for name, path in [('README.md', readme_path), (publication.database_name, database), ('state.json', metadata_path)]:
         sha = _git(repo, ['hash-object', '-w', '--', str(path)]).decode('ascii').strip()
         if not re.fullmatch(r'[0-9a-f]{40,64}', sha):
             raise MonitorError('state blob could not be written safely')
@@ -214,7 +227,8 @@ def _candidate(repo, database, metadata_path, readme_path, parent):
     arguments = ['commit-tree', tree]
     if parent:
         arguments.extend(['-p', parent])
-    commit = _git(repo, arguments, input_bytes=b'Persist public starcup observations and collector backoff\n').decode('ascii').strip()
+    message = ('Persist public ' + publication.name + ' observations and collector backoff\n').encode('ascii')
+    commit = _git(repo, arguments, input_bytes=message).decode('ascii').strip()
     if not re.fullmatch(r'[0-9a-f]{40,64}', commit):
         raise MonitorError('state candidate commit is invalid')
     return commit
@@ -222,7 +236,7 @@ def _candidate(repo, database, metadata_path, readme_path, parent):
 
 def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
                   initialize=False, seed=None, reset_history=False, reset_request=None,
-                  repo=None, config_path=None, now=None) -> dict:
+                  repo=None, config_path=None, now=None, profile='starcup-final') -> dict:
     """Prepare one round; publish readiness is granted only after state push succeeds.
 
     Initialization never contacts the contest. Its Git ref checks/push still use
@@ -232,6 +246,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
     the active state; restored files and the Git parent remain recoverable.
     ``repo``, ``config_path`` and ``now`` support isolated, offline acceptance.
     """
+    publication = get_profile(profile)
     work = Path(work_dir).resolve()
     site = Path(site_output).resolve()
     if work.exists() or work.is_symlink():
@@ -249,7 +264,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
     if bool(initialize) != bool(seed):
         raise ContractError('initialization requires both --initialize and an explicit --seed database')
     repository = Path(repo).resolve() if repo else ROOT
-    config = _configuration(config_path or ROOT / 'config' / 'monitor.starcup-final.json')
+    config = _configuration(config_path or ROOT / 'config' / publication.config_name, profile)
     request = _load_reset_request(reset_request)
     current = utc(now) if now is not None else utc()
     work.mkdir(parents=True)
@@ -261,13 +276,15 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         'phase': 'restoring_state',
         'reset_request_id': request['request_id'] if request else None,
         'reset_request_status': 'pending' if request else None,
+        'profile': publication.name, 'contest_slug': publication.contest_slug,
+        'state_branch': publication.state_branch, 'database_name': publication.database_name,
     }
 
     def record():
         (work / 'report.json').write_text(dumps(report) + '\n', encoding='utf-8')
 
     try:
-        parent = _remote_head(repository)
+        parent = _remote_head(repository, profile)
         live = work / 'live.sqlite3'
         if initialize:
             if parent:
@@ -280,7 +297,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             raw_meta = _git(repository, ['show', parent + ':state.json'])
             if len(raw_meta) > 64 * 1024:
                 raise ContractError('persisted metadata exceeds the safety limit')
-            metadata = _metadata(json.loads(raw_meta.decode('utf-8')), now=current)
+            metadata = _metadata(json.loads(raw_meta.decode('utf-8')), now=current, profile=profile)
             if request is not None:
                 report['phase'] = 'validating_reset_request'
                 receipt = metadata.get('last_completed_reset')
@@ -299,12 +316,13 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
                     reset_history = True
                     report.update(reset_history=True, reset_started_at=current)
             report['phase'] = 'restoring_state'
-            size = int(_git(repository, ['cat-file', '-s', parent + ':starcup-final.sqlite3']).decode('ascii').strip())
+            database_ref = parent + ':' + publication.database_name
+            size = int(_git(repository, ['cat-file', '-s', database_ref]).decode('ascii').strip())
             if size >= MAX_DB_BYTES:
                 raise ContractError('state database reached the 90 MiB safety limit')
             if request is not None and reset_history and request.get('expected_db_bytes', size) != size:
                 raise ContractError('reset request database byte count does not match the archived state')
-            restored = _git(repository, ['show', parent + ':starcup-final.sqlite3'])
+            restored = _git(repository, ['show', database_ref])
             if hashlib.sha256(restored).hexdigest() != metadata['db_sha256']:
                 raise ContractError('persisted database SHA256 mismatch; previous state was not changed')
             restored_path = work / 'restored.sqlite3'
@@ -313,7 +331,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             _readonly_backup(restored_path, live)
 
         report['phase'] = 'validating_restored'
-        count, scope_count = _validate_database(live, poll_seconds)
+        count, scope_count = _validate_database(live, poll_seconds, profile)
         if request is not None and reset_history:
             if request.get('expected_snapshot_count', count) != count:
                 raise ContractError('reset request snapshot count does not match the archived state')
@@ -363,16 +381,16 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             deadline = (datetime.fromisoformat(finished) + timedelta(seconds=delay)).astimezone(timezone.utc).isoformat(timespec='microseconds')
         else:
             deadline = None
-        backup = work / 'starcup-final.sqlite3'
+        backup = work / publication.database_name
         store.backup(str(backup))
         report['phase'] = 'validating_candidate'
         # Reuse this validated post-poll view for publication; do not render
         # the same immutable backup a third time. Never reuse the pre-poll view.
-        collection = _checked_collection(backup, poll_seconds)
+        collection = _checked_collection(backup, poll_seconds, profile)
         _, manifest, count = collection
         scope_count = len(manifest['boards'])
         state = {
-            'schema': 1, 'contest_slug': CONTEST_SLUG,
+            'schema': 1, 'contest_slug': publication.contest_slug, 'profile': publication.name,
             'db_sha256': hashlib.sha256(backup.read_bytes()).hexdigest(),
             'failure_count': failures, 'not_before': deadline,
             'updated_at': finished, 'last_status': status, 'snapshot_count': count,
@@ -391,7 +409,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
         readme.write_text(STATE_README, encoding='utf-8')
         report['phase'] = 'preparing_site'
         _write_site(collection, site)
-        commit = _candidate(repository, backup, state_path, readme, parent)
+        commit = _candidate(repository, backup, state_path, readme, parent, profile)
         report.update(status=status, snapshot_count_after=count, scopes=scope_count,
                       state_changed=True, candidate_commit=commit, not_before=deadline,
                       failure_count=failures)
@@ -399,7 +417,7 @@ def monitor_round(work_dir, site_output, *, poll_seconds=600, push_state=False,
             report['warning'] = 'collection failed or was partial; previous complete boards were retained and retry/backoff was saved'
         if push_state:
             report['phase'] = 'pushing_state'
-            _git(repository, ['push', 'origin', commit + ':' + STATE_REF])
+            _git(repository, ['push', 'origin', commit + ':' + publication.state_ref])
             report.update(state_pushed=True, site_ready=True)
             if request is not None and reset_history:
                 report['reset_request_status'] = 'applied'
@@ -423,10 +441,12 @@ def main():
     parser.add_argument('--seed')
     parser.add_argument('--reset-history', action='store_true', help='Start fresh active observations only after a successful public collection')
     parser.add_argument('--reset-request', help='Apply a guarded one-shot reset request, or append when its receipt already exists')
+    parser.add_argument('--profile', choices=tuple(PROFILES), default='starcup-final')
     args = parser.parse_args()
     print(dumps(monitor_round(args.work_dir, args.site_output, poll_seconds=args.poll_seconds,
                              push_state=args.push_state, initialize=args.initialize, seed=args.seed,
-                             reset_history=args.reset_history, reset_request=args.reset_request)))
+                             reset_history=args.reset_history, reset_request=args.reset_request,
+                             profile=args.profile)))
 
 
 if __name__ == '__main__':

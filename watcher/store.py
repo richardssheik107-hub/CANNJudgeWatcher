@@ -132,6 +132,17 @@ class Store:
                 t['observed_official_peak_score'] = str(sum((Decimal(audit[p['id']]['score']) * Decimal(str(p.get('weight', 1)))
                                                            for p in tasks if p['id'] in audit), Decimal(0))) if audit else None
                 t['observed_official_best'] = list(audit.values())
+                # An official-current anchor is a valid lower bound, but it
+                # cannot stand in for unknown historical submissions. Expose
+                # that distinction independently of the compatibility peak.
+                t['confirmed_peak_lower_bound'] = t['peak_score']
+                known_peak = t['peak_status'] == 'complete' and t['peak_score'] is not None
+                t['current_baseline_history_peak_score'] = t['peak_score'] if known_peak else None
+                t['history_peak_status'] = ('verified-observed' if known_peak else
+                                            'insufficient-data' if t['historical_submissions'] else
+                                            'no-valid-history')
+                t['history_peak_gap'] = (str(Decimal(t['peak_score']) - Decimal(t['official_score']))
+                                         if known_peak and t['official_score'] is not None else None)
             t['best'] = list(t['best'].values()); t['current'] = list(t['current'].values())
         rows = list(teams.values())
         competition_ranks(rows, 'peak_score', 'peak_rank')
@@ -143,6 +154,9 @@ class Store:
                 'warning': '历史分数可能采用不同全场基准；合计榜不是官方最终榜、统一基准重评分榜或藏分判定。'}
         if basis is not None:
             result.update(score_basis=basis, semantics='current_baseline_confirmed_submission_maxima',
+                          history_coverage={'kind': 'periodic-public-ranking-observations',
+                                            'all_contest_submissions_complete': False,
+                                            'missed_between_polls_possible': True},
                           warning='当前值仅覆盖本轮基准下可确认的完整提交；Hidden 或缺失数据不会被推测补齐。旧官方分数仅保留作审计。')
         return result
 

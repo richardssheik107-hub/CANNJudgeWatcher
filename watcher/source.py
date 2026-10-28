@@ -156,14 +156,30 @@ def scoring_context(contest: dict) -> dict:
     """Record the public rule, without assuming hidden timings are available."""
     text = str(contest.get('scoring_rules_content') or '')
     compact = re.sub(r'\s+', '', text)
-    verified = (contest.get('scoring_rules_enabled') is True
+    log_verified = (contest.get('scoring_rules_enabled') is True
                 and contest.get('scoring_rule') == 'default'
                 and '100/(1+log(你的用时/该测试点最优用时)/log(1.5))' in compact
                 and '全部测试点得分的**平均值**（保留两位小数）' in compact
                 and '每个测试点在所有参赛者提交中的历史最快用时' in compact)
-    return {'rule': 'cann-default-time-log-v1', 'verified': verified,
+    # Platform documentation describes a ratio formula, while some contests
+    # explicitly publish the logarithmic variant. Never select one merely
+    # because scoring_rule is "default"; require this contest's own rule text.
+    normalized = compact.replace('**', '').replace('`', '').replace('×', '*').lower()
+    ratio_verified = (contest.get('scoring_rules_enabled') is True
+                      and contest.get('scoring_rule') == 'default'
+                      and any(formula in normalized for formula in
+                              ('(tbest/你的用时)*100', 'tbest/你的用时*100',
+                               '(该测试点最优用时/你的用时)*100'))
+                      and any(average in normalized for average in
+                              ('全部测试点得分的平均值', '所有测试点得分的平均值'))
+                      and '每个测试点在所有参赛者提交中的历史最快用时' in normalized)
+    # Conflicting formulas in a single rule are not an automatic permission
+    # to pick whichever happens to fit one team.
+    verified = log_verified != ratio_verified
+    rule = 'cann-default-time-ratio-v1' if ratio_verified and not log_verified else 'cann-default-time-log-v1'
+    return {'rule': rule, 'verified': verified,
             'rule_source': ORIGIN + '/public/' + quote(str(contest.get('name') or ''), safe='') + '/scoring-rules',
-            'formula': '100/(1+log(time/TBest)/log(1.5))',
+            'formula': '100*TBest/time' if rule == 'cann-default-time-ratio-v1' else '100/(1+log(time/TBest)/log(1.5))',
             'rule_digest': digest(text), 'rule_text': text,
             'problem_ids': sorted(str(p['problem_id']) for p in contest.get('problems', [])
                                   if isinstance(p, dict) and p.get('problem_id')),
@@ -187,10 +203,27 @@ def collect_contest(client: Client, contest: dict, config: dict) -> dict:
     problems = contest.get('problems')
     if not isinstance(problems, list) or not problems:
         raise ContractError('contest has no public problem-ID list')
+    selected = config.get('problem_ids')
+    if selected is not None:
+        if (not isinstance(selected, list) or not selected
+                or any(not isinstance(pid, str) or not pid for pid in selected)
+                or len(set(selected)) != len(selected)):
+            raise ContractError('problem_ids must be a nonempty array of unique stable IDs')
+        known = [str(item.get('problem_id')) for item in problems if isinstance(item, dict)]
+        if any(known.count(pid) != 1 for pid in selected):
+            raise ContractError('selected problem identity is missing or duplicated in the contest')
+        problems = [item for item in problems if str(item.get('problem_id')) in selected]
+        if context is not None:
+            context['contest_problem_ids'] = context['problem_ids']
+            context['problem_ids'] = sorted(selected)
+    ranking_scope = config.get('ranking_scope', 'contest')
+    if ranking_scope not in {'problem', 'contest'} or (ranking_scope == 'problem' and len(problems) != 1):
+        raise ContractError('a problem ranking requires exactly one selected problem')
     title = str(contest.get('title') or contest.get('name') or cid)
     group_match = re.search(r'([A-D])\s*组', title, re.I)
     group = group_match.group(1).upper() if group_match else '公开组'
     descriptors, observations, payloads = [], [], []
+    ranking_url = None
     for item in problems:
         pid = item.get('problem_id') if isinstance(item, dict) else None
         if not pid:
@@ -223,8 +256,16 @@ def collect_contest(client: Client, contest: dict, config: dict) -> dict:
         rows, pages = client.ranking(pid)
         observations.extend(observation(pid, r) for r in rows)
         payloads.append({'problem_id': pid, 'metadata': {'id': pid, 'version': version}, 'pages': pages})
+        if ranking_scope == 'problem':
+            ranking_url = (ORIGIN + '/public/' + quote(str(contest.get('name') or cid), safe='')
+                           + '/' + quote(str(meta.get('name') or pid), safe='') + '/ranking')
     totals, notes = [], []
-    if contest.get('show_total_ranking') is False:
+    if ranking_scope == 'problem':
+        # A single-problem board must retain that ranking's score and official
+        # rank, rather than accidentally borrowing a different contest total.
+        totals = [total_row(row['raw']) for row in observations]
+        notes.append('当前只监控所选题目的官方排行榜，分数与名次来自该题榜，不使用赛事总榜替代。')
+    elif contest.get('show_total_ranking') is False:
         notes.append('源站未公开赛事总榜；官方总分及名次显示为空。')
     else:
         raw_totals = client.get('/api/submissions/contest/' + quote(cid, safe='') + '/stats')
@@ -243,6 +284,12 @@ def collect_contest(client: Client, contest: dict, config: dict) -> dict:
     scope = {'contest_id': cid, 'title': title, 'stage': str(contest.get('name') or cid), 'group': group,
              'epoch': str(config.get('rule_epoch', 'observed-source-score-v1')),
              'problems': sorted(descriptors, key=lambda p: p['id']), 'demo': False}
+    if ranking_scope == 'problem':
+        scope.update(ranking_scope='problem', ranking_url=ranking_url)
+    modes = {p['problem_id']: p['metadata']['version'].get('ranking_submission_mode')
+             for p in payloads if 'problem_id' in p}
+    if any(mode == 'latest' for mode in modes.values()):
+        notes.append('源站按每队最新提交展示，当前分不代表该队历史最高；历史峰值只覆盖监控开始后实际观测到的有效提交。')
     out = {'schema': 1, 'scope': scope, 'observed_at': utc(), 'collection_started_at': start,
            'source': ORIGIN, 'observations': observations, 'totals': totals, 'payloads': payloads, 'notes': notes}
     if context is not None:

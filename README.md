@@ -1,29 +1,30 @@
-# CANNJudgeWatcher · Observed Peak
+# CANNJudgeWatcher · 分数与历史证据
 
-**官方当前榜 + 当前基准下可确认的历史完整提交成绩。** 星辰杯决赛使用最新一轮基准比较，避免把旧基准下的高分误当成今天的峰值；其他尚未核验评分规则的赛事仅展示原始官方分数记录。
+当前监控 [2026 CANN 京津东北决赛 · VarLenNdRotaryPosEmb](https://cannjudge.cn/public/op_challenge_jingdong_final/varlenndrotaryposemb/ranking?page=1&size=20)。[在线榜单](https://richardssheik107-hub.github.io/CANNJudgeWatcher/)由现有 Cloudflare Cron 每十分钟触发 GitHub Actions 更新，无须本机持续开机。仓库和所保存的公开成绩历史均公开。
 
-> [在线榜单](https://richardssheik107-hub.github.io/CANNJudgeWatcher/) 已上线。Cloudflare 免费 Cron 每 10 分钟触发 GitHub Actions 采集、保存历史并发布 Pages；2026-10-06 23:40 / 23:50 连续两轮自动更新与页面自行刷新均已验证，电脑和 Codex 无须持续运行。21 支队伍，按用户请求重置后的活动历史从 2026-10-06 21:17:09（北京时间）开始；旧数据仅保留在恢复备份及 Git 先前提交中，不进入当前看板与导出。回归与部署证据见 [验证记录](docs/VALIDATION.md)。仓库与成绩历史按用户确认公开，演示数据与真实赛事数据分库保存。
+## 当前监控与分数口径
 
-> 本仓库包含 v0.1.0 交付包的主体源码、静态前端、测试、部署配置和演示预览。导入记录与后续验收步骤见 [交付说明](docs/DELIVERY.md)。
+- **官方当前分**来自所选题目榜。该题采用 `ranking_submission_mode=latest`，显示最新提交，不能把它当作历史最优提交。
+- **观测历史最高分（当时基准）**保留监控期间公布过的完整有效官方分最大值。分数可能受全场 TBest 变化影响，仅作历史记录，不冒充当前基准成绩。
+- **当前基准历史最高分（仅已观测提交）**只在所有已观测候选都可确认时显示；有任一候选缺少完整重算条件，就显示“无法确认”。当前官方分只是可确认下界，不是未知历史峰值的替代值。首次只有一个有效版本时，相等只说明尚无旧版本可比较。
+- 单题选择一条完整提交，不拼接不同版本的最佳测试点。公式需在本赛规则中明确，并与本轮全部完整官方成绩精确校准后才能用于历史重算。分别支持已核验的线性比率、对数公式，不跨比赛继承规则。
+- 新比赛有 15 个测试点，其中 10 个隐藏，规则正文未给出可校准的赋分公式；当前不能独立完整重算旧提交。平台通用文档与旧星辰杯使用的公式不同，不按名称猜选公式，也不拿 5 个可见点均值替代完整分。
+- 只覆盖实际采集到的榜单，十分钟之间被替换的提交可能漏采。公开全历史接口需要权限，不能恢复监控前其他队伍的完整历史，也不抓取选手私有源码。
 
-## 已实现
+固定配置为 [`config/monitor.jingdong-final.json`](config/monitor.jingdong-final.json)，默认 [`config/monitor.json`](config/monitor.json) 同样指向新题。新状态单独保存在 `watcher-state-jingdong-final` 分支的 `jingdong-final.sqlite3`；原星辰杯 `watcher-state` 分支及既有归档完整保留，不进入新看板或导出。云端工作流显式使用 `--profile jingdong-final`，旧比赛配置和接口仍可用于查看旧证据。
 
-- **同基准比较**：星辰杯决赛以最新完整快照的官方提交分数为已确认值；仅在所有计分测试点耗时、TBest 和规则均公开且与当前官方分一致时，才重算旧完整提交。无法重算的历史提交明确标记，原始旧分另保留为审计记录。
-- **双榜对照**：当前官方总分与峰值合计、排名差异、分数差值、题目覆盖、数据新鲜度。队伍离开当前榜后，其历史证据仍保留。
-- **历史不被覆盖**：压缩保存每轮完整榜单快照，按完整成绩行去重索引；纯名次变化、同一提交重新评分、队伍改名都可追踪。
-- **公开提交列表归档**：每轮默认读取最多 2 页、每页 100 条；另提供可控页数的 `backfill`。保留平台允许读取的记录，不请求选手源码。未公开 score 的提交不会被倒推成分数。
-- **公开赛事发现**：标题包含“星辰杯”或同时包含“京津”“东北”时入选。来自公开元数据的赛事/题目 ID，不猜测地区赛 URL、分组编号或数组位置。
-- **完整性保护**：分页总数、重复队伍、缺页、首页漂移、JSON 结构与身份校验；不完整的新一轮不会覆盖上一份完整榜单。HTTP 429 按 Retry-After 等待，轮询失败退避。
-- **部署与导出**：FastAPI + SQLite + 静态前端；CSV、快照 JSONL、SQLite 一致性备份；Docker Compose；可选 Bearer 访问令牌；所有网页 API 只读。
-- **免费云端托管路径**：Cloudflare Cron 每 10 分钟触发 Actions 读取所选星辰杯公开榜，独立 `watcher-state` 分支持久保存历史，Pages 展示静态快照。恢复和校验旧历史后才采集，推送历史成功后才发布页面；使用公开仓库，不依赖本机开机。
+本地查看新题：
 
-## GitHub 定时采集与网页
+```bash
+python -m watcher --config config/monitor.jingdong-final.json --db data/jingdong-final.sqlite3 poll
+python -m watcher --config config/monitor.jingdong-final.json --db data/jingdong-final.sqlite3 serve
+```
 
-用户已确认全部公开，直接使用当前仓库。Cloudflare 定时触发、Actions 采集、跨任务历史保留、Pages 发布和页面自动展示均通过连续两轮真实验收。本机采集已停止；原生 GitHub schedule 已移除，保留 workflow_dispatch 手动入口。具体设置、费用条件、首次历史初始化与故障处理见 [GITHUB_RUN.md](docs/GITHUB_RUN.md)。公开仓库标准 Actions runner 无计算分钟费用，使用 GitHub 免费 Pages 地址和 Cloudflare Workers Free。云端队列可能延迟，不保证精确到分钟。专用 GitHub 令牌到期前须更新 Worker Secret，本次令牌到期日为 **2026-11-05**。
+浏览器访问 `http://127.0.0.1:8088`。不带 `--poll` 只浏览现有证据；本地持续采集需要电脑保持运行。云端操作、首次隔离初始化、容量与令牌维护见 [运行说明](docs/GITHUB_RUN.md)，本次检查记录见 [验证记录](docs/VALIDATION.md)。
 
-每十分钟约 144 次/日，占 Cloudflare 每日 100,000 次免费额度的约 0.144%；额度每日重置，当前免费套餐没有固定试用截止日。历史存储仍受容量限制：活动数据库达到 **90 MiB** 会停止采集并保留已有历史，**自动归档尚未实现**。少量初始快照只能粗估增长速度，不能保证可连续记录的天数；长期运行须在达到限制前完成历史归档或存储迁移。容量检查与维护步骤见 [运行说明](docs/GITHUB_RUN.md#历史容量和-artifact-保留)。
+活动数据库达到 90 MiB 时会保护性停止采集并保留已有数据；自动归档尚未实现。预览 artifact 仅在手动勾选 `save_preview` 时保存一天，自动运行只保存数据库并发布网页。当前 GitHub 调度令牌到期日为 **2026-11-05**，需在到期前更新 Cloudflare Worker 的同名 Secret。
 
-2026-10-07 的 79 快照复核中，历史公式重算为 0 条：公开榜有 5 个隐藏计分测试点，目前仅能确认本轮官方成绩。两列相同不能证明真实历史最高分相同，旧官方高分仍在队伍详情中供审计。数据库约 2.18 MiB；为减少 Actions 存储，网页预览改为手动勾选 `save_preview` 才保存，自动采集只保存状态并发布 Pages。
+本仓库来自 v0.1.0 交付包，保留演示、只读 FastAPI、本地脚本、Docker、CSV/JSONL、SQLite 备份、身份/版本隔离、失败保留旧榜与限流退避。历史阶段记录见 [交付说明](docs/DELIVERY.md)。
 
 ## 先看本地演示
 
@@ -41,30 +42,11 @@ python -m watcher --db data/demo.sqlite3 serve
 
 演示库默认 `data/demo.sqlite3`，真实采集默认 `data/live.sqlite3`。不要将演示库用作生产数据源。
 
-## 接入真实赛事
+## 旧比赛与通用接入
 
-本机已核验用户提供的 [星辰杯决赛公开榜](https://cannjudge.cn/public/ct_starcup_aiop_final/ranking)。精确配置为 [`config/monitor.starcup-final.json`](config/monitor.starcup-final.json)，不发送登录 Cookie，轮询等待设为 120 秒，公开提交列表回补暂时关闭。Windows 可双击 `scripts\Start-StarcupLive.cmd` 启动网页和持续采集，双击 `scripts\Stop-StarcupLive.cmd` 停止；数据库为 `data/starcup-final.sqlite3`，运行方式见 [本地运行说明](docs/LOCAL_RUN.md)。本地运行期间电脑须保持开机且不休眠；GitHub 方案启用后由云端独立计划采集，无需本机常开。
+星辰杯旧配置 `config/monitor.starcup-final.json`、`Start-StarcupLive.cmd` 与旧数据库独立保留；这些明确标有 Starcup 的入口仍用于旧赛事。当前默认配置已切换京津东北决赛单题。
 
-首轮官方总分前三为 83.1、68.75、63.35。源站总榜未返回官方 rank，页面保留“—”并展示单独标注的总分参考排名。官方 Pass 成绩中的 Hidden 测试点是未公开结果占位：保留原值并使用官方给出的整条 score，不猜测其用时、精度或分数，也不从测试点拼出成绩。历史峰值只覆盖本地实际观测到的记录，不能追回采集前已经被覆盖的分数。
-
-需要接入其他赛事时，先发现并核验其字段，再运行以下通用流程：
-
-```bash
-# 1. 查看实际公开赛事 ID、slug、标题、赛期和命中的筛选规则
-python -m watcher discover
-
-# 2. 首轮只读采集；只有完整通过校验的赛事快照才会发布
-python -m watcher poll
-
-# 3. 启动网页及持续采集（前台运行；常驻请用 Docker 或系统服务）
-python -m watcher serve --poll
-```
-
-检查页面底部的采集运行记录。若接口不匹配、未开放、封榜、限流或网络失败，保留旧榜，不显示伪造的实时数据。`serve` 不带 `--poll` 时只浏览已有快照。
-
-配置文件是 [`config/monitor.json`](config/monitor.json)。初次真实部署须确认 `discover` 选中了正确赛段；确认后推荐将关键词筛选替换为实际返回的精确 slug，例如 `{"slug":"实际发现的比赛slug"}`。不得自行猜测 B 组或地区赛 slug。
-
-默认每轮完成后等待 120 秒并加入少量抖动，请求之间至少间隔 1 秒；实际刷新周期还包括采集耗时。源站的限流等待优先，不承诺每次提交都能捕获。`include_ended` 控制是否读取已结束的公开榜单。需要更精确的范围时使用明确 slug，而不是监控全部历史赛段。
+新增比赛应先通过 `discover` 核实公开 ID 和规则，再使用精确配置。源站封榜、缺页、权限、限流或网络失败时保留上一份完整榜，不生成伪造实时值。`problem_ids` 只接受属于该赛事的稳定 ID，单题榜的分数及名次来自对应题榜，不借用赛事总榜。不同规则版本、题目和比赛隔离保存。
 
 ## 历史回补、导出、备份
 

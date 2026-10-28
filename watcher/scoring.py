@@ -1,4 +1,4 @@
-"""Current-baseline evidence for the verified Starcup final scoring rule.
+"""Current-baseline evidence for explicitly supported public contests.
 
 Official scores stay immutable. Historical results are evaluated as whole
 submissions, and inaccessible test points never become inferred performances.
@@ -9,11 +9,15 @@ import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 
 from .core import PASS, digest, scope_id
+from .profiles import get_profile
 
 CONTEST_ID = '6abcb2fa694b590c3c300a2e'
 CONTEST_SLUG = 'ct_starcup_aiop_final'
 RULE = 'cann-default-time-log-v1'
 FORMULA = '100/(1+log(time/TBest)/log(1.5))'
+RATIO_RULE = 'cann-default-time-ratio-v1'
+RATIO_FORMULA = '100*TBest/time'
+VERIFIED_FORMULAS = {RULE: FORMULA, RATIO_RULE: RATIO_FORMULA}
 RULE_SOURCE = 'https://cannjudge.cn/public/ct_starcup_aiop_final/scoring-rules'
 
 
@@ -103,7 +107,9 @@ def _complete(row, cases, metadata_consistent):
             and metadata_consistent and performance is not None and set(performance) == set(cases))
 
 
-def _recompute(row, cases):
+def _recompute(row, cases, rule=RULE):
+    if rule not in VERIFIED_FORMULAS:
+        return None
     performance = _performance(row)
     if performance is None or set(performance) != set(cases):
         return None
@@ -121,10 +127,13 @@ def _recompute(row, cases):
             # clarification; do not invent a cap or silently include revoked data.
             if elapsed < reference:
                 return None
-            denominator = Decimal(1) + (elapsed / reference).ln() / Decimal('1.5').ln()
-            if denominator <= 0:
-                return None
-            scores.append(Decimal(100) / denominator)
+            if rule == RATIO_RULE:
+                scores.append(Decimal(100) * reference / elapsed)
+            else:
+                denominator = Decimal(1) + (elapsed / reference).ln() / Decimal('1.5').ln()
+                if denominator <= 0:
+                    return None
+                scores.append(Decimal(100) / denominator)
         if not scores:
             return None
         return str((sum(scores) / Decimal(len(scores))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
@@ -135,8 +144,10 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
     scope = snapshot['scope']
     cases, consistent = _testcases(snapshot, problem_id)
     context = snapshot.get('scoring_context', {})
+    rule_source = ('https://cannjudge.cn/public/' + scope['stage'] + '/scoring-rules')
+    rule = context.get('rule') if isinstance(context, dict) else None
     verified = (isinstance(context, dict) and context.get('verified') is True
-                and context.get('rule') == RULE and context.get('formula') == FORMULA
+                and rule in VERIFIED_FORMULAS and context.get('formula') == VERIFIED_FORMULAS[rule]
                 and isinstance(context.get('problem_ids'), list)
                 and all(isinstance(pid, str) for pid in context['problem_ids'])
                 and sorted(context['problem_ids']) == sorted(p['id'] for p in scope['problems']))
@@ -180,7 +191,7 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
     can_recompute = verified and baseline_complete
     if can_recompute:
         # Verify this exact benchmark/rule against every current official anchor.
-        calibration = [(row, _recompute(row, cases)) for row, _ in anchors.values()]
+        calibration = [(row, _recompute(row, cases, rule)) for row, _ in anchors.values()]
         if not calibration or any(score is None or Decimal(score) != Decimal(row['score'])
                                   for row, score in calibration):
             can_recompute = False
@@ -207,7 +218,7 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
                     if reason not in row_reasons:
                         row_reasons.append(reason)
                     continue
-                score, kind = _recompute(row, cases), 'recomputed-current'
+                score, kind = _recompute(row, cases, rule), 'recomputed-current'
                 if score is None:
                     continue
                 local_count += 1
@@ -217,7 +228,7 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
             derived = {**row, 'score': score, 'original_score': row['score'],
                        'evidence_id': evidence['id'], 'observed_at': evidence['first_seen'],
                        'score_basis_kind': kind, 'score_basis_as_of': snapshot['observed_at'],
-                       'score_basis_source': RULE_SOURCE}
+                       'score_basis_source': rule_source}
             old = team['best'].get(problem_id)
             if old is None or Decimal(score) > Decimal(old['score']):
                 team['best'][problem_id] = derived
@@ -237,7 +248,8 @@ def _apply_problem_basis(snapshot, teams, evidences, problem_id):
         any_missing = any_missing or bool(missing)
 
     return {'kind': 'current-baseline', 'status': 'unavailable' if not any_confirmed else 'partial' if any_missing else 'complete',
-            'as_of': snapshot['observed_at'], 'rule_source': RULE_SOURCE, 'formula': FORMULA,
+            'as_of': snapshot['observed_at'], 'rule_source': rule_source,
+            'formula': VERIFIED_FORMULAS[rule] if verified else None,
             'coverage_scope': 'observed-eligible-submissions',
             'formula_verified': verified, 'rule_digest': context.get('rule_digest') if isinstance(context, dict) else None,
             'baseline_complete': baseline_complete,
@@ -253,8 +265,9 @@ def apply_current_basis(snapshot, teams, evidences):
     submission; only their derived scores and coverage counts are aggregated.
     """
     scope = snapshot['scope']
-    if (scope.get('demo') is not False or scope.get('contest_id') != CONTEST_ID
-            or scope.get('stage') != CONTEST_SLUG):
+    starcup = (scope.get('demo') is False and scope.get('contest_id') == CONTEST_ID
+               and scope.get('stage') == CONTEST_SLUG)
+    if not starcup and not get_profile('jingdong-final').accepts_scope(scope):
         return None
     counters = ('historical_submissions', 'rescored_submissions', 'unavailable_submissions',
                 'official_anchor_submissions', 'formula_rescored_submissions')

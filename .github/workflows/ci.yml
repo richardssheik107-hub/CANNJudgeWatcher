@@ -33,6 +33,7 @@ jobs:
           CANNWATCHER_TEST_ARTIFACTS: ${{ runner.temp }}/cannwatcher-test-artifacts
       - run: python -m compileall -q watcher
       - run: node --check web/app.js
+      - run: node --test tests/frontend_scores.test.mjs
       - run: node --test integrations/cloudflare-scheduler/worker.test.mjs
       - name: Validate the scheduled handler in the native Workers runtime
         run: npx --yes workerd@1.20261001.1 test integrations/cloudflare-scheduler/runtime-tests/config.capnp

@@ -1,3 +1,14 @@
+## 2026-10-28：切换京津东北决赛单题与历史峰值口径
+
+- 开始前从远端 main 快进到 `cc0d00a`，保留已有动态题目重算、导出性能优化和一次性归档 reset 修复。旧比赛线上 729 份快照与失败数 0 的状态已核对；迁移采用独立分支而不重置旧库。
+- 新目标为 `op_challenge_jingdong_final` 的 `varlenndrotaryposemb`；赛事 ID `6adac8e13ff2fef7e8929a9f`、题目 ID `6adb272d1dac5d235bd66d0b`，题榜模式 `latest`。真实公开 GET 连续两轮 SUCCESS，34 队、15 点（5 可见、10 Hidden），未发送登录凭据。
+- 首份观测北京时间 15:43:34，第二份 15:47:57。第二份中“天理”当前 37.62 / 观测原始最高 43.26，“zxy同学”35.53 / 35.59；两者当前基准历史峰值为未知。真实历史中已有 5 队缺少重算条件，不能用当前 anchor 代替完整峰值。
+- 官方平台通用计分文档描述线性 `TBest/time*100`，旧星辰杯规则则是对数公式。新比赛规则正文只有合规要求，公开历史列表返回 401；不把通用文档当成本赛事已核验公式。线性/对数策略均要求规则正文明确、全点及 TBest 完整、全部当轮完整官方 anchor 精确校准才用于旧提交。完整历史提交始终逐条比较，不逐测试点拼接。
+- 新字段区分 `current_baseline_history_peak_score`（仅已观测、全部候选可确认时有值）、`confirmed_peak_lower_bound` 与 `observed_official_peak_score`。缺少任一候选时精确峰值为 null；全赛事历史覆盖明确 false。数据库模式未变，旧证据不重写。
+- 页面、详情、CSV 同时区分三类分数，默认按官方当前分排序，保留原始历史分参考排序；未知值不回退为当前分。首次仅一条当前提交时明确“尚无旧版本可比较”。新 profile 严格固定比赛/题目/单题榜范围，新分支 `watcher-state-jingdong-final`、文件 `jingdong-final.sqlite3`；旧 `watcher-state` 与归档保持。
+- 本地全量回归 **251 passed / 169.97s**；Node 前端实际渲染与 CSV **7/7**、调度器 **23/23**，Python 编译、JS 语法及 diff 检查通过。首次全量因 Windows MAX_PATH 和旧测试默认 GBK 失败 5 项；短根 `.upload-validation/r-1028` 加 `PYTHONUTF8=1` 后全量通过，保留所有产物。保留 1 条已有 Starlette/AnyIO 弃用警告。
+- 公共原始响应、来源 URL/时间/SHA256、规则研究、真实榜单与首轮隔离初始化预演保存在忽略目录 `data/new-contest-validation/` 与 `data/jingdong-init-oct28/`。云端 CI、定时更新及浏览器发布验收以本次实际运行结果单独记录，不以离线测试替代。
+
 # 验证记录 — 2026-10-06 至 2026-10-23
 
 ## 2026-10-23 容量边界下的一次性恢复

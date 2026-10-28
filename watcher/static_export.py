@@ -19,9 +19,10 @@ from urllib.parse import quote
 
 from .collector import archive_rows
 from .core import ContractError, clean, digest, dumps, observation, scope_id, utc, validate_snapshot
+from .profiles import PROFILES, get_profile
 from .store import Store
 
-CONTEST_SLUG = 'ct_starcup_aiop_final'
+CONTEST_SLUG = get_profile().contest_slug  # Legacy import compatibility.
 ROOT = Path(__file__).resolve().parent.parent
 EXTRA_PRIVATE_KEYS = frozenset({
     'source_code', 'sourcecode', 'solution', 'solution_code', 'original_code',
@@ -67,7 +68,8 @@ def _json_file(files, path, value):
     files[path] = (dumps(public_data(value)) + '\n').encode('utf-8')
 
 
-def _collect(db_path: Path, poll_seconds: int):
+def _collect(db_path: Path, poll_seconds: int, *, profile='starcup-final'):
+    publication = get_profile(profile)
     if not db_path.is_file():
         raise ContractError('existing live database is required; no database was created')
     connection = sqlite3.connect('file:' + quote(db_path.as_posix(), safe='/:') + '?mode=ro', uri=True)
@@ -88,9 +90,9 @@ def _collect(db_path: Path, poll_seconds: int):
         by_scope = {}
         for scope in scopes:
             sid = scope['id']
-            if (scope.get('demo') is not False or scope.get('stage') != CONTEST_SLUG
+            if (not publication.accepts_scope(scope)
                     or not re.fullmatch(r'[0-9a-f]{24}', sid) or scope_id(scope) != sid):
-                raise ContractError('only non-demo ct_starcup_aiop_final scopes may be published')
+                raise ContractError('only the selected non-demo public contest scope may be published')
             by_scope[sid] = scope
 
         snapshots = []
@@ -101,8 +103,7 @@ def _collect(db_path: Path, poll_seconds: int):
             sid = scope_id(snapshot['scope'])
             if (sid not in by_scope or sid != row['scope_id'] or digest(snapshot) != row['digest']
                     or snapshot['observed_at'] != row['observed_at']
-                    or snapshot['scope'].get('demo') is not False
-                    or snapshot['scope'].get('stage') != CONTEST_SLUG):
+                    or not publication.accepts_scope(snapshot['scope'])):
                 raise ContractError('invalid or unrelated stored snapshot; nothing was published')
             snapshots.append(snapshot)
             snapshots_by_scope[sid].append((snapshot, bool(row['imported'])))
@@ -135,7 +136,8 @@ def _collect(db_path: Path, poll_seconds: int):
             raise ContractError('stored snapshot evidence is incomplete; nothing was published')
 
         manifest = {
-            'schema': 1, 'generated_at': utc(), 'contest_slug': CONTEST_SLUG,
+            'schema': 1, 'generated_at': utc(), 'contest_slug': publication.contest_slug,
+            'profile': publication.name,
             'collector_enabled': False, 'poll_seconds': poll_seconds,
             'hosting': 'github-actions-static',
             'scopes': '_data/scopes.json', 'runs': '_data/runs.json',
@@ -236,7 +238,7 @@ def _write_site(collection, output: str | Path, *, web_dir: str | Path | None = 
 
 
 def export_site(db_path: str | Path, output: str | Path, *, poll_seconds: int = 600,
-                web_dir: str | Path | None = None) -> dict:
+                web_dir: str | Path | None = None, profile='starcup-final') -> dict:
     """Export only to a new destination, publishing it after every read succeeds."""
     if isinstance(poll_seconds, bool) or not isinstance(poll_seconds, int) or poll_seconds < 300:
         raise ContractError('scheduled poll_seconds must be an integer of at least 300')
@@ -244,7 +246,10 @@ def export_site(db_path: str | Path, output: str | Path, *, poll_seconds: int = 
     if destination.exists() or destination.is_symlink():
         raise ContractError('destination must not exist; old exports are never overwritten or deleted')
     source = Path(db_path).resolve()
-    return _write_site(_collect(source, poll_seconds), destination, web_dir=web_dir)
+    # Keep the legacy two-argument path available to existing local callers.
+    collection = (_collect(source, poll_seconds) if profile == 'starcup-final'
+                  else _collect(source, poll_seconds, profile=profile))
+    return _write_site(collection, destination, web_dir=web_dir)
 
 
 def main():
@@ -252,8 +257,9 @@ def main():
     parser.add_argument('--db', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--poll-seconds', type=int, default=600)
+    parser.add_argument('--profile', choices=tuple(PROFILES), default='starcup-final')
     args = parser.parse_args()
-    print(dumps(export_site(args.db, args.output, poll_seconds=args.poll_seconds)))
+    print(dumps(export_site(args.db, args.output, poll_seconds=args.poll_seconds, profile=args.profile)))
 
 
 if __name__ == '__main__':
